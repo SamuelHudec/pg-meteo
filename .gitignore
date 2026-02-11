@@ -1,0 +1,5 @@
+.DS_Store
+*.FCBak
+*.FCStd
+secrets.h
+Archive.zip
