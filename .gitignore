@@ -1,5 +1,5 @@
 .DS_Store
 *.FCBak
 *.FCStd
-secrets.h
+secrets.yaml
 Archive.zip
