@@ -1,7 +1,7 @@
 substitutions:
-  device_name: meteo_sonda
-  friendly_name: Meteo sonda
-  ota_manifest_url: "https://github.com/SamuelHudec/pg-meteo/blob/main/skalka/firmware/manifest.json"
+  device_name: meteo_skalka
+  friendly_name: Weather Station Skalka
+  ota_manifest_url: "https://raw.githubusercontent.com/SamuelHudec/pg-meteo/main/skalka/firmware/manifest.json"
   wifi_wait_timeout: 30s
   boot_stabilize_delay: 3s
   run_duration_seconds: "120"

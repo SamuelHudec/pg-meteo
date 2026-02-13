@@ -2,28 +2,46 @@
 set -euo pipefail
 
 # Usage:
-#   ./publish_esphome_http_ota.sh path/to/device.yaml ESP32-C3
+#   ./scripts/publish.sh <site_dir>
+# Example:
+#   ./scripts/publish.sh skalka
 #
 # Optional env vars:
-#   VERSION=2026.02.11
-#   BASE_URL=https://<user>.github.io/<repo>/firmware
-#   OUT_ROOT=docs/firmware
-#
-# Then your ESPHome update source should be:
-#   ${BASE_URL}/<device_name>/manifest.json
+#   VERSION=2026.02.13-1700
+#   REMOTE=origin
+#   BRANCH=main
+#   ESPHOME_IMAGE=ghcr.io/esphome/esphome:stable
 
-YAML_PATH="${1:-}"
-CHIP_FAMILY="${2:-}"
-
-if [[ -z "${YAML_PATH}" || -z "${CHIP_FAMILY}" ]]; then
-  echo "Usage: $0 path/to/device.yaml <chipFamily e.g. ESP32, ESP32-C3, ESP8266>"
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $0 <site_dir>"
   exit 2
 fi
 
-if ! command -v esphome >/dev/null 2>&1; then
-  echo "ERROR: 'esphome' CLI not found in PATH."
-  echo "Install ESPHome CLI or run this in an environment where 'esphome' exists."
-  exit 3
+SITE_DIR_REL="$1"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SITE_DIR="${REPO_ROOT}/${SITE_DIR_REL}"
+CONFIG_PATH="${SITE_DIR}/esp_config/main.yaml"
+CONFIG_DIR="$(dirname "${CONFIG_PATH}")"
+BUILD_ROOT="${CONFIG_DIR}/.esphome/build"
+FIRMWARE_DIR="${SITE_DIR}/firmware"
+MANIFEST_PATH="${FIRMWARE_DIR}/manifest.json"
+BIN_OUT_PATH="${FIRMWARE_DIR}/firmware.ota.bin"
+CHIP_FAMILY="ESP32-C3"
+VERSION="${VERSION:-$(date +%Y.%m.%d-%H%M)}"
+REMOTE="${REMOTE:-origin}"
+BRANCH="${BRANCH:-main}"
+ESPHOME_IMAGE="${ESPHOME_IMAGE:-ghcr.io/esphome/esphome:stable}"
+MANIFEST_URL="https://raw.githubusercontent.com/SamuelHudec/pg-meteo/main/${SITE_DIR_REL}/firmware/manifest.json"
+
+if [[ ! -d "${SITE_DIR}" ]]; then
+  echo "ERROR: Site dir not found: ${SITE_DIR_REL}"
+  exit 2
+fi
+
+if [[ ! -f "${CONFIG_PATH}" ]]; then
+  echo "ERROR: ESPHome config not found: ${CONFIG_PATH}"
+  exit 2
 fi
 
 if ! command -v git >/dev/null 2>&1; then
@@ -31,43 +49,56 @@ if ! command -v git >/dev/null 2>&1; then
   exit 3
 fi
 
-CONFIG_DIR="$(cd "$(dirname "${YAML_PATH}")" && pwd)"
-DEVICE_NAME="$(basename "${YAML_PATH}" .yaml)"
-
-VERSION="${VERSION:-$(date +%Y.%m.%d-%H%M)}"
-OUT_ROOT="${OUT_ROOT:-docs/firmware}"
-DEVICE_OUT_DIR="${OUT_ROOT}/${DEVICE_NAME}"
-BIN_OUT_NAME="firmware.ota.bin"
-
-# This BASE_URL should point to the GitHub Pages URL that serves /docs/firmware
-BASE_URL="${BASE_URL:-}"
-if [[ -z "${BASE_URL}" ]]; then
-  echo "WARNING: BASE_URL not set. Manifest will still be created, but it won't include an absolute URL."
-  echo "Set BASE_URL to something like: https://<user>.github.io/<repo>/firmware"
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: python3 not found."
+  exit 3
 fi
 
-echo "==> Compiling ${DEVICE_NAME} from ${YAML_PATH}"
-( cd "${CONFIG_DIR}" && esphome compile "$(basename "${YAML_PATH}")" )
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: docker not found."
+  exit 3
+fi
 
-# ESPHome typically writes build artifacts under:
-# <CONFIG_DIR>/.esphome/build/<device>/.pioenvs/<device>/firmware.bin
-# (and for OTA it may produce firmware.ota.bin depending on target/framework)
-BUILD_DIR="${CONFIG_DIR}/.esphome/build/${DEVICE_NAME}"
-if [[ ! -d "${BUILD_DIR}" ]]; then
-  echo "ERROR: Build dir not found: ${BUILD_DIR}"
+DEVICE_NAME="$(
+  sed -n 's/^[[:space:]]*device_name:[[:space:]]*"\{0,1\}\([^"#]*\)"\{0,1\}.*/\1/p' "${CONFIG_PATH}" \
+    | head -n 1 \
+    | xargs
+)"
+if [[ -z "${DEVICE_NAME}" ]]; then
+  DEVICE_NAME="meteo_sonda"
+fi
+
+echo "==> Site: ${SITE_DIR_REL}"
+echo "==> Config: ${CONFIG_PATH}"
+echo "==> Device name: ${DEVICE_NAME}"
+echo "==> Version: ${VERSION}"
+echo "==> Compiling with Docker image ${ESPHOME_IMAGE}"
+(
+  cd "${REPO_ROOT}"
+  docker run --rm \
+    -u "$(id -u):$(id -g)" \
+    -v "${REPO_ROOT}:/config" \
+    -w /config \
+    "${ESPHOME_IMAGE}" \
+    compile "${SITE_DIR_REL}/esp_config/main.yaml"
+)
+
+if [[ ! -d "${BUILD_ROOT}" ]]; then
+  echo "ERROR: Build root not found: ${BUILD_ROOT}"
   exit 4
 fi
 
-# Find best candidate: firmware.ota.bin first, else firmware.bin
-BIN_PATH="$(find "${BUILD_DIR}" -type f \( -name "firmware.ota.bin" -o -name "firmware.bin" \) | head -n 1 || true)"
+BIN_PATH="$(find "${BUILD_ROOT}" -type f -name "firmware.ota.bin" | head -n 1 || true)"
 if [[ -z "${BIN_PATH}" ]]; then
-  echo "ERROR: Could not find firmware.ota.bin or firmware.bin under ${BUILD_DIR}"
+  BIN_PATH="$(find "${BUILD_ROOT}" -type f -name "firmware.bin" | head -n 1 || true)"
+fi
+if [[ -z "${BIN_PATH}" ]]; then
+  echo "ERROR: Could not find firmware.ota.bin or firmware.bin under ${BUILD_ROOT}"
   exit 5
 fi
 
 echo "==> Using binary: ${BIN_PATH}"
 
-# Compute MD5 (macOS: md5 -q, Linux: md5sum)
 if command -v md5 >/dev/null 2>&1; then
   MD5_HASH="$(md5 -q "${BIN_PATH}")"
 elif command -v md5sum >/dev/null 2>&1; then
@@ -77,30 +108,18 @@ else
   exit 6
 fi
 
-echo "==> MD5: ${MD5_HASH}"
-echo "==> VERSION: ${VERSION}"
-echo "==> CHIP_FAMILY: ${CHIP_FAMILY}"
+mkdir -p "${FIRMWARE_DIR}"
+cp -f "${BIN_PATH}" "${BIN_OUT_PATH}"
 
-mkdir -p "${DEVICE_OUT_DIR}"
-
-# Copy binary
-cp -f "${BIN_PATH}" "${DEVICE_OUT_DIR}/${BIN_OUT_NAME}"
-
-# Build manifest (ESPHome Managed Updates expects a manifest.json with builds + ota.md5 + ota.path)  [oai_citation:2‡esphome.io](https://esphome.io/components/update/http_request/?utm_source=chatgpt.com)
-MANIFEST_PATH="${DEVICE_OUT_DIR}/manifest.json"
-OTA_PATH="${BIN_OUT_NAME}"
-
-# Use python (more portable than jq) to write json
 python3 - <<PY
-import json, os
+import json
 
 manifest_path = "${MANIFEST_PATH}"
 name = "${DEVICE_NAME}"
 version = "${VERSION}"
 chip = "${CHIP_FAMILY}"
 md5 = "${MD5_HASH}"
-ota_path = "${OTA_PATH}"
-base_url = "${BASE_URL}".strip()
+ota_path = "firmware.ota.bin"
 
 data = {
   "name": name,
@@ -117,32 +136,31 @@ data = {
   ]
 }
 
-# Optionally include a convenience "homepage" field
-if base_url:
-  data["homepage"] = f"{base_url}/{name}/"
-
 with open(manifest_path, "w", encoding="utf-8") as f:
   json.dump(data, f, indent=2)
   f.write("\n")
+
 print(f"Wrote {manifest_path}")
 PY
 
-echo "==> Git add/commit/push"
-git add "${DEVICE_OUT_DIR}/manifest.json" "${DEVICE_OUT_DIR}/${BIN_OUT_NAME}"
+echo "==> Staging OTA artifacts"
+(
+  cd "${REPO_ROOT}"
+  git add "${SITE_DIR_REL}/firmware/manifest.json" "${SITE_DIR_REL}/firmware/firmware.ota.bin"
+)
 
-# Commit only if there are changes
-if git diff --cached --quiet; then
+if ( cd "${REPO_ROOT}" && git diff --cached --quiet ); then
   echo "No changes to commit."
-else
-  git commit -m "Publish OTA ${DEVICE_NAME} ${VERSION}"
-  git push
+  echo "Manifest URL: ${MANIFEST_URL}"
+  exit 0
 fi
 
-echo "==> Done."
-echo
-echo "ESPHome update source URL should be:"
-if [[ -n "${BASE_URL}" ]]; then
-  echo "  ${BASE_URL}/${DEVICE_NAME}/manifest.json"
-else
-  echo "  (set BASE_URL first to print final URL)"
-fi
+(
+  cd "${REPO_ROOT}"
+  git commit -m "Publish OTA ${SITE_DIR_REL} ${VERSION}"
+  git push "${REMOTE}" "${BRANCH}"
+)
+
+echo "==> Done"
+echo "Manifest URL: ${MANIFEST_URL}"
+echo "MD5: ${MD5_HASH}"
