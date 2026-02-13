@@ -1,0 +1,14 @@
+{
+  "name": "meteo_sonda",
+  "version": "0.0.0-fake",
+  "builds": [
+    {
+      "chipFamily": "ESP32-C3",
+      "ota": {
+        "path": "firmware.ota.bin",
+        "md5": "00000000000000000000000000000000",
+        "summary": "Fake manifest for local testing"
+      }
+    }
+  ]
+}

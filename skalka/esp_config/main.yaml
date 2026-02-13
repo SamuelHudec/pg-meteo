@@ -1,25 +1,42 @@
-esphome:
-  name: meteo_sonda
+substitutions:
+  device_name: meteo_sonda
   friendly_name: Meteo sonda
+  ota_manifest_url: "https://github.com/SamuelHudec/pg-meteo/blob/main/skalka/firmware/manifest.json"
+  wifi_wait_timeout: 30s
+  boot_stabilize_delay: 3s
+  run_duration_seconds: "120"
+  run_duration: 120s
+  sleep_duration: 10min
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
   on_boot:
     priority: -10
     then:
-      # nech sa stihne Wi-Fi + DNS
-      - delay: 3s
-
-      # skontroluj manifest
-      - update.check: fw_update
-
-      # ak je nová verzia → hneď update
+      - delay: ${boot_stabilize_delay}
+      - logger.log: "Boot: waiting for WiFi before OTA check"
+      - wait_until:
+          condition:
+            wifi.connected:
+          timeout: ${wifi_wait_timeout}
       - if:
           condition:
-            update.is_available: fw_update
+            wifi.connected:
           then:
-            - logger.log: "HTTP OTA: New firmware available -> updating now"
-            - update.perform: fw_update
-
-      # ak update nebol, pokračuj v normálnom behu (senzory / publish)
-      - logger.log: "Boot: no update (or after update). Continue."
+            - logger.log: "Boot: WiFi connected, OTA check started"
+            - update.check: fw_update
+            - if:
+                condition:
+                  update.is_available: fw_update
+                then:
+                  - logger.log: "HTTP OTA: update available, starting update"
+                  - update.perform: fw_update
+                else:
+                  - logger.log: "HTTP OTA: no update available"
+          else:
+            - logger.log: "Boot: WiFi timeout, OTA check skipped"
+      - logger.log: "Deep sleep countdown started: active window ${run_duration}"
 
 esp32:
   board: esp32-c3-devkitm-1
@@ -28,40 +45,60 @@ esp32:
 
 logger:
 
-# Ak chceš len MQTT (bez HA API), API môžeš zmazať.
-api:
-
-# Wi-Fi: minimálny setup, doplň svoje SSID/PASS
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  # fallback AP (ak sa nevie pripojiť)
   ap:
-    ssid: "meteo_sonda_fallback"
+    ssid: "${device_name}_fallback"
     password: !secret fallback_ap_password
 
 captive_portal:
 
-# HTTP klient pre sťahovanie manifestu + FW
+web_server:
+  port: 80
+  log: true
+
 http_request:
-  # GitHub Releases redirecty môžu potrebovať väčší buffer, pre GitHub Pages stačí malé.
   max_response_buffer_size: 2kb
 
-# OTA implementované cez http_request (pull OTA)
 ota:
   - platform: http_request
     id: ota_http
 
-# Update entita, ktorá ukazuje dostupnosť a drží "current version"
 update:
   - platform: http_request
     id: fw_update
-    name: "Firmware Update"
-    source: "https://YOUR_GITHUB_PAGES/firmware/meteo_sonda/manifest.json"
-    update_interval: 0s   # necheckuj periodicky, len pri boote
+    name: "${friendly_name} Firmware Update"
+    source: ${ota_manifest_url}
+    update_interval: 0s
 
-# Deep sleep (meteosonda)
+sensor:
+  - platform: wifi_signal
+    name: "${friendly_name} WiFi RSSI"
+    update_interval: 15s
+
+  - platform: uptime
+    name: "${friendly_name} Uptime"
+    update_interval: 15s
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "${friendly_name} IP"
+    ssid:
+      name: "${friendly_name} SSID"
+
+interval:
+  - interval: 15s
+    then:
+      - lambda: |-
+          const uint32_t active_s = ${run_duration_seconds};
+          const uint32_t elapsed_s = millis() / 1000U;
+          if (elapsed_s < active_s) {
+            ESP_LOGI("sleep", "Deep sleep in %u s", active_s - elapsed_s);
+          }
+
 deep_sleep:
   id: sleep_ctrl
-  run_duration: 30s
-  sleep_duration: 10min
+  run_duration: ${run_duration}
+  sleep_duration: ${sleep_duration}
