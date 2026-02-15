@@ -1,13 +1,13 @@
 {
-  "name": "meteo_sonda",
-  "version": "0.0.0-fake",
+  "name": "weather-station-skalka",
+  "version": "2026.02.15-1731",
   "builds": [
     {
       "chipFamily": "ESP32-C3",
       "ota": {
         "path": "firmware.ota.bin",
-        "md5": "00000000000000000000000000000000",
-        "summary": "Fake manifest for local testing"
+        "md5": "8c57e44e7fa8da216ec8c126df0a03e7",
+        "summary": "Auto-published build 2026.02.15-1731"
       }
     }
   ]
