@@ -27,6 +27,7 @@ BUILD_ROOT="${CONFIG_DIR}/.esphome/build"
 FIRMWARE_DIR="${SITE_DIR}/firmware"
 MANIFEST_PATH="${FIRMWARE_DIR}/manifest.json"
 BIN_OUT_PATH="${FIRMWARE_DIR}/firmware.ota.bin"
+PLATFORMIO_CORE_DIR_HOST="${REPO_ROOT}/.platformio"
 CHIP_FAMILY="ESP32-C3"
 VERSION="${VERSION:-$(date +%Y.%m.%d-%H%M)}"
 REMOTE="${REMOTE:-origin}"
@@ -73,10 +74,13 @@ echo "==> Config: ${CONFIG_PATH}"
 echo "==> Device name: ${DEVICE_NAME}"
 echo "==> Version: ${VERSION}"
 echo "==> Compiling with Docker image ${ESPHOME_IMAGE}"
+mkdir -p "${PLATFORMIO_CORE_DIR_HOST}"
 (
   cd "${REPO_ROOT}"
   docker run --rm \
     -u "$(id -u):$(id -g)" \
+    -e HOME=/config \
+    -e PLATFORMIO_CORE_DIR=/config/.platformio \
     -v "${REPO_ROOT}:/config" \
     -w /config \
     "${ESPHOME_IMAGE}" \

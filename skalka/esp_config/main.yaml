@@ -1,5 +1,5 @@
 substitutions:
-  device_name: meteo_skalka
+  device_name: weather-station-skalka
   friendly_name: Weather Station Skalka
   ota_manifest_url: "https://raw.githubusercontent.com/SamuelHudec/pg-meteo/main/skalka/firmware/manifest.json"
   wifi_wait_timeout: 30s
@@ -59,7 +59,7 @@ web_server:
   log: true
 
 http_request:
-  max_response_buffer_size: 2kb
+  buffer_size_rx: 2048
 
 ota:
   - platform: http_request
