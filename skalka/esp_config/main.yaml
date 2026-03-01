@@ -8,6 +8,9 @@ substitutions:
   run_duration: 120s
   sleep_duration: 10min
   fw_version: 0.0.0-dev
+  wg_test_url: "http://192.168.1.162:8080/upload/api.php"
+  wg_test_uid: "97411"
+  wg_test_interval: 60s
 
 esphome:
   name: ${device_name}
@@ -77,6 +80,14 @@ update:
         - delay: 3s
         - update.perform: fw_update
 
+script:
+  - id: send_fake_windguru
+    mode: queued
+    then:
+      - logger.log: "WG test send: pushing fake constants"
+      - http_request.get:
+          url: "${wg_test_url}?uid=${wg_test_uid}&interval=60&wind_avg=4.2&wind_max=6.1&wind_min=2.8&wind_direction=180&temperature=22.5&rh=55&mslp=1013.2"
+
 sensor:
   - platform: wifi_signal
     name: "${friendly_name} WiFi RSSI"
@@ -110,6 +121,15 @@ interval:
           if (elapsed_s < active_s) {
             ESP_LOGI("sleep", "Deep sleep in %u s", active_s - elapsed_s);
           }
+  - interval: ${wg_test_interval}
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - script.execute: send_fake_windguru
+          else:
+            - logger.log: "WG test send skipped: WiFi not connected"
 
 deep_sleep:
   id: sleep_ctrl
