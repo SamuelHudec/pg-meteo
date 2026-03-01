@@ -7,14 +7,19 @@ substitutions:
   run_duration_seconds: "120"
   run_duration: 120s
   sleep_duration: 10min
+  fw_version: 0.0.0-dev
 
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
+  project:
+    name: samuelhudec.pg_meteo
+    version: ${fw_version}
   on_boot:
     priority: -10
     then:
       - delay: ${boot_stabilize_delay}
+      - component.update: firmware_version_text
       - logger.log: "Boot: waiting for WiFi before OTA check"
       - wait_until:
           condition:
@@ -26,14 +31,6 @@ esphome:
           then:
             - logger.log: "Boot: WiFi connected, OTA check started"
             - update.check: fw_update
-            - if:
-                condition:
-                  update.is_available: fw_update
-                then:
-                  - logger.log: "HTTP OTA: update available, starting update"
-                  - update.perform: fw_update
-                else:
-                  - logger.log: "HTTP OTA: no update available"
           else:
             - logger.log: "Boot: WiFi timeout, OTA check skipped"
       - logger.log: "Deep sleep countdown started: active window ${run_duration}"
@@ -60,8 +57,11 @@ web_server:
 
 http_request:
   buffer_size_rx: 2048
+  timeout: 10s
+  follow_redirects: true
 
 ota:
+  - platform: esphome
   - platform: http_request
     id: ota_http
 
@@ -70,7 +70,12 @@ update:
     id: fw_update
     name: "${friendly_name} Firmware Update"
     source: ${ota_manifest_url}
-    update_interval: 0s
+    update_interval: never
+    on_update_available:
+      then:
+        - logger.log: "HTTP OTA: update available, starting update"
+        - delay: 3s
+        - update.perform: fw_update
 
 sensor:
   - platform: wifi_signal
@@ -82,6 +87,14 @@ sensor:
     update_interval: 15s
 
 text_sensor:
+  - platform: template
+    name: "${friendly_name} Firmware Version"
+    id: firmware_version_text
+    icon: "mdi:identifier"
+    update_interval: never
+    lambda: |-
+      return {"${fw_version}"};
+
   - platform: wifi_info
     ip_address:
       name: "${friendly_name} IP"

@@ -26,10 +26,16 @@ CONFIG_DIR="$(dirname "${CONFIG_PATH}")"
 BUILD_ROOT="${CONFIG_DIR}/.esphome/build"
 FIRMWARE_DIR="${SITE_DIR}/firmware"
 MANIFEST_PATH="${FIRMWARE_DIR}/manifest.json"
-BIN_OUT_PATH="${FIRMWARE_DIR}/firmware.ota.bin"
+OTA_BIN_OUT_PATH="${FIRMWARE_DIR}/firmware.ota.bin"
+FACTORY_BIN_OUT_PATH="${FIRMWARE_DIR}/firmware.factory.bin"
 PLATFORMIO_CORE_DIR_HOST="${REPO_ROOT}/.platformio"
 CHIP_FAMILY="ESP32-C3"
-VERSION="${VERSION:-$(date +%Y.%m.%d-%H%M)}"
+YEAR="$(date +%Y)"
+MONTH="$((10#$(date +%m)))"
+DAY="$((10#$(date +%d)))"
+TIME_PART="$(date +%H%M%S)"
+DEFAULT_VERSION="${YEAR}.${MONTH}.${DAY}-${TIME_PART}"
+VERSION="${VERSION:-${DEFAULT_VERSION}}"
 REMOTE="${REMOTE:-origin}"
 BRANCH="${BRANCH:-main}"
 ESPHOME_IMAGE="${ESPHOME_IMAGE:-ghcr.io/esphome/esphome:stable}"
@@ -84,6 +90,7 @@ mkdir -p "${PLATFORMIO_CORE_DIR_HOST}"
     -v "${REPO_ROOT}:/config" \
     -w /config \
     "${ESPHOME_IMAGE}" \
+    -s fw_version "${VERSION}" \
     compile "${SITE_DIR_REL}/esp_config/main.yaml"
 )
 
@@ -92,28 +99,38 @@ if [[ ! -d "${BUILD_ROOT}" ]]; then
   exit 4
 fi
 
-BIN_PATH="$(find "${BUILD_ROOT}" -type f -name "firmware.ota.bin" | head -n 1 || true)"
-if [[ -z "${BIN_PATH}" ]]; then
-  BIN_PATH="$(find "${BUILD_ROOT}" -type f -name "firmware.bin" | head -n 1 || true)"
+OTA_BIN_PATH="$(find "${BUILD_ROOT}" -type f -name "firmware.ota.bin" | head -n 1 || true)"
+if [[ -z "${OTA_BIN_PATH}" ]]; then
+  OTA_BIN_PATH="$(find "${BUILD_ROOT}" -type f -name "firmware.bin" | head -n 1 || true)"
 fi
-if [[ -z "${BIN_PATH}" ]]; then
+if [[ -z "${OTA_BIN_PATH}" ]]; then
   echo "ERROR: Could not find firmware.ota.bin or firmware.bin under ${BUILD_ROOT}"
   exit 5
 fi
 
-echo "==> Using binary: ${BIN_PATH}"
+FACTORY_BIN_PATH="$(find "${BUILD_ROOT}" -type f -name "firmware.factory.bin" | head -n 1 || true)"
+if [[ -z "${FACTORY_BIN_PATH}" ]]; then
+  echo "ERROR: Could not find firmware.factory.bin under ${BUILD_ROOT}"
+  exit 5
+fi
+
+echo "==> OTA binary: ${OTA_BIN_PATH}"
+echo "==> Factory binary: ${FACTORY_BIN_PATH}"
 
 if command -v md5 >/dev/null 2>&1; then
-  MD5_HASH="$(md5 -q "${BIN_PATH}")"
+  OTA_MD5_HASH="$(md5 -q "${OTA_BIN_PATH}")"
+  FACTORY_MD5_HASH="$(md5 -q "${FACTORY_BIN_PATH}")"
 elif command -v md5sum >/dev/null 2>&1; then
-  MD5_HASH="$(md5sum "${BIN_PATH}" | awk '{print $1}')"
+  OTA_MD5_HASH="$(md5sum "${OTA_BIN_PATH}" | awk '{print $1}')"
+  FACTORY_MD5_HASH="$(md5sum "${FACTORY_BIN_PATH}" | awk '{print $1}')"
 else
   echo "ERROR: neither md5 nor md5sum found."
   exit 6
 fi
 
 mkdir -p "${FIRMWARE_DIR}"
-cp -f "${BIN_PATH}" "${BIN_OUT_PATH}"
+cp -f "${OTA_BIN_PATH}" "${OTA_BIN_OUT_PATH}"
+cp -f "${FACTORY_BIN_PATH}" "${FACTORY_BIN_OUT_PATH}"
 
 python3 - <<PY
 import json
@@ -122,8 +139,10 @@ manifest_path = "${MANIFEST_PATH}"
 name = "${DEVICE_NAME}"
 version = "${VERSION}"
 chip = "${CHIP_FAMILY}"
-md5 = "${MD5_HASH}"
+ota_md5 = "${OTA_MD5_HASH}"
+factory_md5 = "${FACTORY_MD5_HASH}"
 ota_path = "firmware.ota.bin"
+factory_path = "firmware.factory.bin"
 
 data = {
   "name": name,
@@ -133,7 +152,12 @@ data = {
       "chipFamily": chip,
       "ota": {
         "path": ota_path,
-        "md5": md5,
+        "md5": ota_md5,
+        "summary": f"Auto-published build {version}"
+      },
+      "factory": {
+        "path": factory_path,
+        "md5": factory_md5,
         "summary": f"Auto-published build {version}"
       }
     }
@@ -147,10 +171,13 @@ with open(manifest_path, "w", encoding="utf-8") as f:
 print(f"Wrote {manifest_path}")
 PY
 
-echo "==> Staging OTA artifacts"
+echo "==> Staging firmware artifacts"
 (
   cd "${REPO_ROOT}"
-  git add "${SITE_DIR_REL}/firmware/manifest.json" "${SITE_DIR_REL}/firmware/firmware.ota.bin"
+  git add \
+    "${SITE_DIR_REL}/firmware/manifest.json" \
+    "${SITE_DIR_REL}/firmware/firmware.ota.bin" \
+    "${SITE_DIR_REL}/firmware/firmware.factory.bin"
 )
 
 if ( cd "${REPO_ROOT}" && git diff --cached --quiet ); then
@@ -161,10 +188,13 @@ fi
 
 (
   cd "${REPO_ROOT}"
-  git commit -m "Publish OTA ${SITE_DIR_REL} ${VERSION}"
+  git commit -m "Publish firmware ${SITE_DIR_REL} ${VERSION}"
   git push "${REMOTE}" "${BRANCH}"
 )
 
 echo "==> Done"
 echo "Manifest URL: ${MANIFEST_URL}"
-echo "MD5: ${MD5_HASH}"
+echo "Factory image (first USB/web flash): ${SITE_DIR_REL}/firmware/firmware.factory.bin"
+echo "OTA image (updates only): ${SITE_DIR_REL}/firmware/firmware.ota.bin"
+echo "OTA MD5: ${OTA_MD5_HASH}"
+echo "Factory MD5: ${FACTORY_MD5_HASH}"
