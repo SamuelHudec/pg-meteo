@@ -43,6 +43,18 @@ esp32:
   framework:
     type: esp-idf
 
+i2c:
+  sda: 19
+  scl: 18
+  scan: true
+  id: bus_a
+
+switch:
+  - platform: gpio
+    pin: GPIO4
+    id: my_output
+    restore_mode: ALWAYS_ON
+
 logger:
 
 wifi:
@@ -84,9 +96,20 @@ script:
   - id: send_fake_windguru
     mode: queued
     then:
-      - logger.log: "WG test send: pushing fake constants"
+      - logger.log: "WG test send: pushing payload with live temperature/humidity"
       - http_request.get:
-          url: "${wg_test_url}?uid=${wg_test_uid}&interval=60&wind_avg=4.2&wind_max=6.1&wind_min=2.8&wind_direction=180&temperature=22.5&rh=55&mslp=1013.2"
+          url: !lambda |-
+            char buf[320];
+            const float temp = isnan(id(temperature).state) ? 22.5f : id(temperature).state;
+            const float hum = isnan(id(humidity).state) ? 55.0f : id(humidity).state;
+            snprintf(
+              buf,
+              sizeof(buf),
+              "${wg_test_url}?uid=${wg_test_uid}&interval=60&wind_avg=4.2&wind_max=6.1&wind_min=2.8&wind_direction=180&temperature=%.2f&rh=%.2f&mslp=1013.2",
+              temp,
+              hum
+            );
+            return std::string(buf);
 
 sensor:
   - platform: wifi_signal
@@ -96,6 +119,14 @@ sensor:
   - platform: uptime
     name: "${friendly_name} Uptime"
     update_interval: 15s
+
+  - platform: sht4x
+    temperature:
+      name: "Temperature"
+      id: temperature
+    humidity:
+      name: "Humidity"
+      id: humidity
 
 text_sensor:
   - platform: template
