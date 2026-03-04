@@ -120,6 +120,13 @@ sensor:
     name: "${friendly_name} Uptime"
     update_interval: 15s
 
+  - platform: adc
+    pin: GPIO5
+    name: "Analog GPIO5 Raw"
+    id: analog_gpio5_raw
+    attenuation: 11db
+    update_interval: 1s
+
   - platform: sht4x
     temperature:
       name: "Temperature"
@@ -162,7 +169,7 @@ interval:
           else:
             - logger.log: "WG test send skipped: WiFi not connected"
 
-deep_sleep:
-  id: sleep_ctrl
-  run_duration: ${run_duration}
-  sleep_duration: ${sleep_duration}
+#deep_sleep:
+#  id: sleep_ctrl
+#  run_duration: ${run_duration}
+#  sleep_duration: ${sleep_duration}
