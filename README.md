@@ -4,6 +4,27 @@ This repository contains the ESPHome configuration and firmware publishing flow 
 
 Hardware base board: [LaskaKit Meteo Mini](https://www.laskakit.cz/laskakit-meteo-mini/?variantId=10473)
 
+## Components
+
+Main prototype parts with rough price estimates:
+
+- [LaskaKit Meteo Mini](https://www.laskakit.cz/laskakit-meteo-mini/) - about `398 CZK`
+- [GeB LiPol battery 603048 900mAh 3.7V](https://www.laskakit.cz/ehao-lipol-baterie-603048-900mah-3-7v/) - about `100 CZK`
+- [WH-SP-WS01 wind speed sensor / anemometer](https://www.laskakit.cz/wh-sp-ws01-cidlo-rychlosti-vetru-anemometr/) - about `228 CZK`
+- [WH-SP-WD wind direction sensor](https://www.laskakit.cz/wh-sp-wd-cidlo-smeru-vetru/) - about `288 CZK`
+- [LaskaKit SHT40 temperature and humidity sensor](https://www.laskakit.cz/laskakit-sht40-senzor-teploty-a-vlhkosti-vzduchu/) - about `88 CZK`
+- [Connfly DS1133-03-S40B RJ11 6/4 connector](https://www.gme.cz/v/1502422/connfly-ds1133-03-s40b-konektor-rj11-6-4) - about `10 CZK`
+- [Solar panel 5V 7W with wall mount](https://www.laskakit.cz/solarni-panel-5v-7w-s-drzakem-na-zed/) - about `608 CZK`
+- [Pigtail MHF3/IPEX3 to SMA Female, 15cm](https://www.laskakit.cz/pigtail-mhf3-ipex3-sma-female--kabel-1-15mm--15cm/) - about `48 CZK`
+- [2.4 GHz antenna 5dBi 19cm](https://www.laskakit.cz/antena-5dbi-19cm-2-4g-bila/) - about `68 CZK`
+- [USB-C to JST-PH-2 power cable, 10cm](https://www.laskakit.cz/napajeci-kabel-jq-118j-usb-c-do-jst-ph-2-2mm-10cm/) - about `28 CZK`
+- [JST-SH 3-pin cable, 10cm](https://www.laskakit.cz/--sup-io-jst-sh-3-pin-kabel-10cm/) - about `18 CZK`
+- [Yageo MFR-25FTE52 metal oxide resistor, 1/4W, 1%](https://www.laskakit.cz/metal-oxidovy-rezistor-yageo-mfr-25fte52-1-4w-1-/?variantId=19979) - about `1 CZK`
+
+Rough total for the listed electronics is about `1,900 CZK`.
+
+This is only a rough parts estimate. It does not include printed parts, fasteners, shipping, or any replacement/alternative components.
+
 ## What the station does
 
 The intended device behavior is:
