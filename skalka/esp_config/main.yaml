@@ -76,6 +76,10 @@ web_server:
   port: 80
   log: true
 
+time:
+  - platform: sntp
+    id: sntp_time
+
 http_request:
   buffer_size_rx: 2048
   timeout: 10s
@@ -111,6 +115,18 @@ globals:
     type: float
     restore_value: no
     initial_value: "0.0"
+  - id: wind_dir_sin_sum
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+  - id: wind_dir_cos_sum
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+  - id: wind_dir_samples
+    type: int
+    restore_value: no
+    initial_value: "0"
 
 script:
   - id: send_fake_windguru
@@ -123,31 +139,49 @@ script:
           const float max_v = id(wind_speed_samples) > 0
             ? id(wind_speed_max_sample)
             : id(wind_speed_ms).state;
+          float avg_dir = id(wind_heading).state;
+          if (id(wind_dir_samples) > 0) {
+            const float mean_sin = id(wind_dir_sin_sum) / id(wind_dir_samples);
+            const float mean_cos = id(wind_dir_cos_sum) / id(wind_dir_samples);
+            const float magnitude = sqrtf(mean_sin * mean_sin + mean_cos * mean_cos);
+            if (magnitude > 0.01f) {
+              avg_dir = atan2f(mean_sin, mean_cos) * 180.0f / 3.14159265f;
+              if (avg_dir < 0.0f) {
+                avg_dir += 360.0f;
+              }
+            }
+          }
 
           id(wind_speed_avg_window).publish_state(avg);
           id(wind_speed_max_window).publish_state(max_v);
+          id(wind_heading_avg_window).publish_state(avg_dir);
 
           ESP_LOGI(
             "wind_stats",
-            "Wind ${measurement_window} stats: samples=%d avg=%.2f m/s max=%.2f m/s",
+            "Wind ${measurement_window} stats: speed_samples=%d avg=%.2f m/s max=%.2f m/s dir_samples=%d avg_dir=%.1f deg",
             id(wind_speed_samples),
             avg,
-            max_v
+            max_v,
+            id(wind_dir_samples),
+            avg_dir
           );
       - http_request.get:
           url: !lambda |-
-            char buf[320];
+            char buf[384];
             const float temp = isnan(id(temperature).state) ? 22.5f : id(temperature).state;
             const float hum = isnan(id(humidity).state) ? 55.0f : id(humidity).state;
-            const int wind_dir = isnan(id(wind_heading).state) ? 180 : (int) roundf(id(wind_heading).state);
-            const float wind_avg = id(wind_speed_avg_window).state;
-            const float wind_max = id(wind_speed_max_window).state;
+            const int wind_dir = isnan(id(wind_heading_avg_window).state) ? 180 : (int) roundf(id(wind_heading_avg_window).state);
+            const float wind_avg_knots = id(wind_speed_avg_window).state * 1.94384f;
+            const float wind_max_knots = id(wind_speed_max_window).state * 1.94384f;
+            const auto now = id(sntp_time).now();
+            const long timestamp = now.is_valid() ? now.timestamp : 0;
             snprintf(
               buf,
               sizeof(buf),
-              "${wg_test_url}?uid=${wg_test_uid}&interval=60&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
-              wind_avg,
-              wind_max,
+              "${wg_test_url}?uid=${wg_test_uid}&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
+              timestamp,
+              wind_avg_knots,
+              wind_max_knots,
               wind_dir,
               temp,
               hum
@@ -157,6 +191,9 @@ script:
           id(wind_speed_sum) = 0.0f;
           id(wind_speed_samples) = 0;
           id(wind_speed_max_sample) = 0.0f;
+          id(wind_dir_sin_sum) = 0.0f;
+          id(wind_dir_cos_sum) = 0.0f;
+          id(wind_dir_samples) = 0;
 
 sensor:
   - platform: pulse_meter
@@ -249,6 +286,21 @@ sensor:
   - platform: template
     id: wind_heading
     name: "${friendly_name} Wind Direction"
+    unit_of_measurement: "°"
+    icon: "mdi:compass"
+    accuracy_decimals: 1
+    on_value:
+      - lambda: |-
+          if (!isnan(x)) {
+            const float rad = x * 3.14159265f / 180.0f;
+            id(wind_dir_sin_sum) += sinf(rad);
+            id(wind_dir_cos_sum) += cosf(rad);
+            id(wind_dir_samples) += 1;
+          }
+
+  - platform: template
+    id: wind_heading_avg_window
+    name: "${friendly_name} Wind Direction Avg"
     unit_of_measurement: "°"
     icon: "mdi:compass"
     accuracy_decimals: 1
