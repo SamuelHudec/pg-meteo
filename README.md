@@ -83,6 +83,30 @@ What the script does:
 - `skalka/firmware/firmware.ota.bin`: use for OTA updates on a device already running ESPHome
 - `skalka/firmware/manifest.json`: OTA manifest used by the device to detect and download new firmware
 
+## Local test server
+
+The repository includes a small fake Windguru server for local validation.
+
+Run it from the repo root:
+
+```bash
+python3 test_server/fake_windguru_server.py
+```
+
+It listens on:
+
+```text
+http://0.0.0.0:8080/upload/api.php
+```
+
+What it does:
+- accepts Windguru-like GET requests
+- returns `200 OK`
+- logs each request to `windguru_log.jsonl`
+- prints a short summary to the terminal
+
+This is useful while validating the measurement and upload flow before switching to the real `windguru.cz` endpoint.
+
 ## Current implementation notes
 
 - Wind speed is measured continuously from the anemometer pulse input.
