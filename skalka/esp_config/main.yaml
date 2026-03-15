@@ -10,7 +10,8 @@ substitutions:
   fw_version: 0.0.0-dev
   wg_test_url: "http://192.168.1.162:8080/upload/api.php"
   wg_test_uid: "97411"
-  wg_test_interval: 60s
+  measurement_window: 60s
+  wg_test_interval: ${measurement_window}
   anemometer_factor: "0.005560619"
 
 esphome:
@@ -97,26 +98,65 @@ update:
         - delay: 3s
         - update.perform: fw_update
 
+globals:
+  - id: wind_speed_sum
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+  - id: wind_speed_samples
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: wind_speed_max_sample
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+
 script:
   - id: send_fake_windguru
     mode: queued
     then:
-      - logger.log: "WG test send: pushing payload with live temperature/humidity"
+      - lambda: |-
+          const float avg = id(wind_speed_samples) > 0
+            ? id(wind_speed_sum) / id(wind_speed_samples)
+            : id(wind_speed_ms).state;
+          const float max_v = id(wind_speed_samples) > 0
+            ? id(wind_speed_max_sample)
+            : id(wind_speed_ms).state;
+
+          id(wind_speed_avg_window).publish_state(avg);
+          id(wind_speed_max_window).publish_state(max_v);
+
+          ESP_LOGI(
+            "wind_stats",
+            "Wind ${measurement_window} stats: samples=%d avg=%.2f m/s max=%.2f m/s",
+            id(wind_speed_samples),
+            avg,
+            max_v
+          );
       - http_request.get:
           url: !lambda |-
             char buf[320];
             const float temp = isnan(id(temperature).state) ? 22.5f : id(temperature).state;
             const float hum = isnan(id(humidity).state) ? 55.0f : id(humidity).state;
             const int wind_dir = isnan(id(wind_heading).state) ? 180 : (int) roundf(id(wind_heading).state);
+            const float wind_avg = id(wind_speed_avg_window).state;
+            const float wind_max = id(wind_speed_max_window).state;
             snprintf(
               buf,
               sizeof(buf),
-              "${wg_test_url}?uid=${wg_test_uid}&interval=60&wind_avg=4.2&wind_max=6.1&wind_min=2.8&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
+              "${wg_test_url}?uid=${wg_test_uid}&interval=60&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
+              wind_avg,
+              wind_max,
               wind_dir,
               temp,
               hum
             );
             return std::string(buf);
+      - lambda: |-
+          id(wind_speed_sum) = 0.0f;
+          id(wind_speed_samples) = 0;
+          id(wind_speed_max_sample) = 0.0f;
 
 sensor:
   - platform: pulse_meter
@@ -135,6 +175,29 @@ sensor:
       - sliding_window_moving_average:
           window_size: 5
           send_every: 1
+    on_value:
+      - lambda: |-
+          if (!isnan(x)) {
+            id(wind_speed_sum) += x;
+            id(wind_speed_samples) += 1;
+            if (id(wind_speed_samples) == 1 || x > id(wind_speed_max_sample)) {
+              id(wind_speed_max_sample) = x;
+            }
+          }
+
+  - platform: template
+    id: wind_speed_avg_window
+    name: "${friendly_name} Wind Speed Avg"
+    unit_of_measurement: "m/s"
+    icon: "mdi:weather-windy"
+    accuracy_decimals: 2
+
+  - platform: template
+    id: wind_speed_max_window
+    name: "${friendly_name} Wind Speed Max"
+    unit_of_measurement: "m/s"
+    icon: "mdi:weather-windy"
+    accuracy_decimals: 2
 
   - platform: adc
     id: wind_vane_adc
