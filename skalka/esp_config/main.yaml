@@ -329,25 +329,6 @@ text_sensor:
       name: "${friendly_name} SSID"
 
 interval:
-  - interval: 1s
-    then:
-      - lambda: |-
-          if (!isnan(id(wind_vane_resistance).state)) {
-            ESP_LOGI(
-              "wind_vane_map",
-              "Wind vane: %.0f ohm (heading %.1f deg)",
-              id(wind_vane_resistance).state,
-              id(wind_heading).state
-            );
-          }
-  - interval: 15s
-    then:
-      - lambda: |-
-          const uint32_t active_s = ${run_duration_seconds};
-          const uint32_t elapsed_s = millis() / 1000U;
-          if (elapsed_s < active_s) {
-            ESP_LOGI("sleep", "Deep sleep in %u s", active_s - elapsed_s);
-          }
   - interval: ${wg_test_interval}
     then:
       - if:
