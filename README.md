@@ -2,7 +2,7 @@
 
 This repository contains the ESPHome configuration and firmware publishing flow for weather stations in this project.
 
-The repository is structured so it can support more than one weather station over time. The station name is passed as a parameter where needed, for example during firmware publishing.
+Hardware base board: [LaskaKit Meteo Mini](https://www.laskakit.cz/laskakit-meteo-mini/?variantId=10473)
 
 ## What the station does
 
@@ -31,42 +31,20 @@ During development, deep sleep can stay disabled so the short-period measurement
 On boot, the device:
 
 1. waits for Wi-Fi for a limited time
-2. checks the published firmware manifest
+2. checks the published firmware manifest in this repo
 3. if a newer version is available, it downloads and installs the update automatically
 
 The OTA manifest is hosted from this repository and referenced by the ESPHome config in `skalka/esp_config/main.yaml`.
 
 ## Manual flashing with ESPHome
 
-### Option 1: ESPHome Web
-
 For a first flash or a recovery flash:
 
 1. Build firmware from this repo or use an already published binary from `skalka/firmware/`.
 2. Open `https://web.esphome.io/` in a Chromium-based browser.
 3. Connect the ESP32 board over USB.
-4. Choose:
-   - `skalka/firmware/firmware.factory.bin` for first flash
-   - `skalka/firmware/firmware.factory.bin` for recovery if OTA is no longer working
+4. Choose `firmware.factory.bin`
 5. Flash the device from the browser UI.
-
-Use the `factory` binary for any manual USB/web flashing.
-
-### Option 2: ESPHome CLI
-
-If you have ESPHome installed locally, you can compile and upload directly from the config:
-
-```bash
-esphome run skalka/esp_config/main.yaml
-```
-
-This is useful when the board is connected by USB and you want ESPHome to compile and flash in one step.
-
-To only compile:
-
-```bash
-esphome compile skalka/esp_config/main.yaml
-```
 
 ## Multiple weather stations
 
@@ -88,7 +66,7 @@ Run from repo root:
 ```
 
 Prerequisites:
-- Docker is running
+- Docker deamon is running (if you do not have Docker download and install for your OS)
 - `git` and `python3` are installed
 
 What the script does:
