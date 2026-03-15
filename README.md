@@ -107,6 +107,14 @@ What it does:
 
 This is useful while validating the measurement and upload flow before switching to the real `windguru.cz` endpoint.
 
+## 3D printable parts
+
+The repository also contains 3D models for printed hardware parts in the [`3D/`](3D) folder.
+
+Included assets:
+- enclosure models in `3D/enclosure/`
+- mounting arms and holders in `3D/mount/`
+
 ## Current implementation notes
 
 - Wind speed is measured continuously from the anemometer pulse input.
