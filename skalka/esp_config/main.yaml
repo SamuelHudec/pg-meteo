@@ -11,6 +11,7 @@ substitutions:
   wg_test_url: "http://192.168.1.162:8080/upload/api.php"
   wg_test_uid: "97411"
   wg_test_interval: 60s
+  anemometer_factor: "0.005560619"
 
 esphome:
   name: ${device_name}
@@ -102,30 +103,88 @@ script:
             char buf[320];
             const float temp = isnan(id(temperature).state) ? 22.5f : id(temperature).state;
             const float hum = isnan(id(humidity).state) ? 55.0f : id(humidity).state;
+            const int wind_dir = isnan(id(wind_heading).state) ? 180 : (int) roundf(id(wind_heading).state);
             snprintf(
               buf,
               sizeof(buf),
-              "${wg_test_url}?uid=${wg_test_uid}&interval=60&wind_avg=4.2&wind_max=6.1&wind_min=2.8&wind_direction=180&temperature=%.2f&rh=%.2f&mslp=1013.2",
+              "${wg_test_url}?uid=${wg_test_uid}&interval=60&wind_avg=4.2&wind_max=6.1&wind_min=2.8&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
+              wind_dir,
               temp,
               hum
             );
             return std::string(buf);
 
 sensor:
-  - platform: wifi_signal
-    name: "${friendly_name} WiFi RSSI"
-    update_interval: 15s
-
-  - platform: uptime
-    name: "${friendly_name} Uptime"
-    update_interval: 15s
+  - platform: pulse_meter
+    pin:
+      number: GPIO10
+      mode: INPUT_PULLUP
+    id: wind_speed_ms
+    name: "${friendly_name} Wind Speed"
+    unit_of_measurement: "m/s"
+    icon: "mdi:weather-windy"
+    internal_filter: 13us
+    timeout: 5s
+    accuracy_decimals: 2
+    filters:
+      - multiply: ${anemometer_factor}
+      - sliding_window_moving_average:
+          window_size: 5
+          send_every: 1
 
   - platform: adc
-    pin: GPIO5
-    name: "Analog GPIO5 Raw"
-    id: analog_gpio5_raw
-    attenuation: 11db
-    update_interval: 1s
+    id: wind_vane_adc
+    pin: GPIO1
+    attenuation: 12db
+    update_interval: 500ms
+    internal: true
+    filters:
+      - median:
+          window_size: 7
+          send_every: 4
+          send_first_at: 3
+
+  - platform: resistance
+    id: wind_vane_resistance
+    sensor: wind_vane_adc
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    reference_voltage: 3.3V
+    internal: true
+    on_value:
+      - lambda: |-
+          struct Point { float ohm; float deg; };
+          static const Point table[] = {
+            {3000.0f,   0.0f},
+            {15220.0f,  22.5f},
+            { 12200.0f,  45.0f},
+            { 68760.0f,  90.0f},
+            { 46500.0f, 135.0f},
+            {25500.0f, 180.0f},
+            { 31700.0f, 202.5f},
+            {6200.0f, 225.0f},
+            {830.0f,270.0f},
+            {1520.0f, 315.0f},
+          };
+
+          float best_deg = table[0].deg;
+          float best_err = fabsf(x - table[0].ohm);
+          for (size_t i = 1; i < (sizeof(table) / sizeof(table[0])); i++) {
+            const float err = fabsf(x - table[i].ohm);
+            if (err < best_err) {
+              best_err = err;
+              best_deg = table[i].deg;
+            }
+          }
+
+          id(wind_heading).publish_state(best_deg);
+
+  - platform: template
+    id: wind_heading
+    name: "${friendly_name} Wind Direction"
+    unit_of_measurement: "°"
+    icon: "mdi:compass"
+    accuracy_decimals: 1
 
   - platform: sht4x
     temperature:
@@ -151,6 +210,17 @@ text_sensor:
       name: "${friendly_name} SSID"
 
 interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (!isnan(id(wind_vane_resistance).state)) {
+            ESP_LOGI(
+              "wind_vane_map",
+              "Wind vane: %.0f ohm (heading %.1f deg)",
+              id(wind_vane_resistance).state,
+              id(wind_heading).state
+            );
+          }
   - interval: 15s
     then:
       - lambda: |-
