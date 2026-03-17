@@ -1,6 +1,7 @@
 .DS_Store
 .platformio
 .esphome
+**/.esphome/
 *.FCBak
 *.FCStd
 secrets.yaml
