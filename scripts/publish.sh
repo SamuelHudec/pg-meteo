@@ -2,9 +2,10 @@
 set -euo pipefail
 
 # Usage:
-#   ./scripts/publish.sh <site_dir>
+#   ./scripts/publish.sh <site_dir> [test]
 # Example:
 #   ./scripts/publish.sh skalka
+#   ./scripts/publish.sh skalka test
 #
 # Optional env vars:
 #   VERSION=2026.02.13-1700
@@ -12,16 +13,26 @@ set -euo pipefail
 #   BRANCH=main
 #   ESPHOME_IMAGE=ghcr.io/esphome/esphome:stable
 
-if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 <site_dir>"
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "Usage: $0 <site_dir> [test]"
   exit 2
 fi
 
 SITE_DIR_REL="$1"
+CONFIG_VARIANT="${2:-main}"
+if [[ "${CONFIG_VARIANT}" == "test" ]]; then
+  CONFIG_FILE_NAME="main.test.yaml"
+elif [[ "${CONFIG_VARIANT}" == "main" ]]; then
+  CONFIG_FILE_NAME="main.yaml"
+else
+  echo "ERROR: Unsupported config variant '${CONFIG_VARIANT}'. Use 'test' or omit the second argument."
+  exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SITE_DIR="${REPO_ROOT}/${SITE_DIR_REL}"
-CONFIG_PATH="${SITE_DIR}/esp_config/main.yaml"
+CONFIG_PATH="${SITE_DIR}/esp_config/${CONFIG_FILE_NAME}"
 CONFIG_DIR="$(dirname "${CONFIG_PATH}")"
 BUILD_ROOT="${CONFIG_DIR}/.esphome/build"
 FIRMWARE_DIR="${SITE_DIR}/firmware"
@@ -76,6 +87,7 @@ if [[ -z "${DEVICE_NAME}" ]]; then
 fi
 
 echo "==> Site: ${SITE_DIR_REL}"
+echo "==> Config variant: ${CONFIG_VARIANT}"
 echo "==> Config: ${CONFIG_PATH}"
 echo "==> Device name: ${DEVICE_NAME}"
 echo "==> Version: ${VERSION}"
@@ -91,7 +103,7 @@ mkdir -p "${PLATFORMIO_CORE_DIR_HOST}"
     -w /config \
     "${ESPHOME_IMAGE}" \
     -s fw_version "${VERSION}" \
-    compile "${SITE_DIR_REL}/esp_config/main.yaml"
+    compile "${SITE_DIR_REL}/esp_config/${CONFIG_FILE_NAME}"
 )
 
 if [[ ! -d "${BUILD_ROOT}" ]]; then

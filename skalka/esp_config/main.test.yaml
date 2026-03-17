@@ -1,0 +1,389 @@
+substitutions:
+  device_name: weather-station-skalka
+  friendly_name: Weather Station Skalka
+  ota_manifest_url: "https://raw.githubusercontent.com/SamuelHudec/pg-meteo/main/skalka/firmware/manifest.json"
+  wifi_wait_timeout: 30s
+  boot_stabilize_delay: 3s
+  run_duration_seconds: "120"
+  run_duration: 120s
+  sleep_duration: 10min
+  fw_version: 0.0.0-dev
+  wg_test_url: "http://192.168.1.162:8080/upload/api.php"
+  wg_test_uid: "97411"
+  measurement_window: 60s
+  wg_test_interval: ${measurement_window}
+  anemometer_factor: "0.005560619"
+  battery_empty_voltage: "3.20"
+  battery_full_voltage: "4.20"
+  battery_divider_factor: "1.714286"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  project:
+    name: samuelhudec.pg_meteo
+    version: ${fw_version}
+  on_boot:
+    priority: -10
+    then:
+      - delay: ${boot_stabilize_delay}
+      - component.update: firmware_version_text
+      - logger.log: "Boot: waiting for WiFi before OTA check"
+      - wait_until:
+          condition:
+            wifi.connected:
+          timeout: ${wifi_wait_timeout}
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - logger.log: "Boot: WiFi connected, OTA check started"
+            - update.check: fw_update
+          else:
+            - logger.log: "Boot: WiFi timeout, OTA check skipped"
+      - logger.log: "Deep sleep countdown started: active window ${run_duration}"
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+i2c:
+  sda: 19
+  scl: 18
+  scan: true
+  id: bus_a
+
+switch:
+  - platform: gpio
+    pin: GPIO4
+    id: my_output
+    restore_mode: ALWAYS_ON
+
+button:
+  - platform: restart
+    name: "${friendly_name} Restart"
+
+logger:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${device_name}_fallback"
+    password: !secret fallback_ap_password
+
+captive_portal:
+
+web_server:
+  port: 80
+  log: true
+
+time:
+  - platform: sntp
+    id: sntp_time
+
+http_request:
+  buffer_size_rx: 2048
+  timeout: 10s
+  follow_redirects: true
+
+ota:
+  - platform: esphome
+  - platform: http_request
+    id: ota_http
+
+update:
+  - platform: http_request
+    id: fw_update
+    name: "${friendly_name} Firmware Update"
+    source: ${ota_manifest_url}
+    update_interval: never
+    on_update_available:
+      then:
+        - logger.log: "HTTP OTA: update available, starting update"
+        - delay: 3s
+        - update.perform: fw_update
+
+globals:
+  - id: wind_speed_sum
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+  - id: wind_speed_samples
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: wind_speed_max_sample
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+  - id: wind_dir_sin_sum
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+  - id: wind_dir_cos_sum
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+  - id: wind_dir_samples
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+script:
+  - id: send_fake_windguru
+    mode: queued
+    then:
+      - lambda: |-
+          const float avg = id(wind_speed_samples) > 0
+            ? id(wind_speed_sum) / id(wind_speed_samples)
+            : id(wind_speed_ms).state;
+          const float max_v = id(wind_speed_samples) > 0
+            ? id(wind_speed_max_sample)
+            : id(wind_speed_ms).state;
+          float avg_dir = id(wind_heading).state;
+          if (id(wind_dir_samples) > 0) {
+            const float mean_sin = id(wind_dir_sin_sum) / id(wind_dir_samples);
+            const float mean_cos = id(wind_dir_cos_sum) / id(wind_dir_samples);
+            const float magnitude = sqrtf(mean_sin * mean_sin + mean_cos * mean_cos);
+            if (magnitude > 0.01f) {
+              avg_dir = atan2f(mean_sin, mean_cos) * 180.0f / 3.14159265f;
+              if (avg_dir < 0.0f) {
+                avg_dir += 360.0f;
+              }
+            }
+          }
+
+          id(wind_speed_avg_window).publish_state(avg);
+          id(wind_speed_max_window).publish_state(max_v);
+          id(wind_heading_avg_window).publish_state(avg_dir);
+
+          ESP_LOGI(
+            "wind_stats",
+            "Wind ${measurement_window} stats: speed_samples=%d avg=%.2f m/s max=%.2f m/s dir_samples=%d avg_dir=%.1f deg",
+            id(wind_speed_samples),
+            avg,
+            max_v,
+            id(wind_dir_samples),
+            avg_dir
+          );
+      - http_request.get:
+          url: !lambda |-
+            char buf[384];
+            const float temp = isnan(id(temperature).state) ? 22.5f : id(temperature).state;
+            const float hum = isnan(id(humidity).state) ? 55.0f : id(humidity).state;
+            const int wind_dir = isnan(id(wind_heading_avg_window).state) ? 180 : (int) roundf(id(wind_heading_avg_window).state);
+            const float wind_avg_knots = id(wind_speed_avg_window).state * 1.94384f;
+            const float wind_max_knots = id(wind_speed_max_window).state * 1.94384f;
+            const auto now = id(sntp_time).now();
+            const long timestamp = now.is_valid() ? now.timestamp : 0;
+            snprintf(
+              buf,
+              sizeof(buf),
+              "${wg_test_url}?uid=${wg_test_uid}&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
+              timestamp,
+              wind_avg_knots,
+              wind_max_knots,
+              wind_dir,
+              temp,
+              hum
+            );
+            return std::string(buf);
+      - lambda: |-
+          id(wind_speed_sum) = 0.0f;
+          id(wind_speed_samples) = 0;
+          id(wind_speed_max_sample) = 0.0f;
+          id(wind_dir_sin_sum) = 0.0f;
+          id(wind_dir_cos_sum) = 0.0f;
+          id(wind_dir_samples) = 0;
+
+sensor:
+  - platform: pulse_meter
+    pin:
+      number: GPIO10
+      mode: INPUT_PULLUP
+    id: wind_speed_ms
+    name: "${friendly_name} Wind Speed"
+    unit_of_measurement: "m/s"
+    icon: "mdi:weather-windy"
+    internal_filter: 13us
+    timeout: 5s
+    accuracy_decimals: 2
+    filters:
+      - multiply: ${anemometer_factor}
+      - sliding_window_moving_average:
+          window_size: 5
+          send_every: 1
+    on_value:
+      - lambda: |-
+          if (!isnan(x)) {
+            id(wind_speed_sum) += x;
+            id(wind_speed_samples) += 1;
+            if (id(wind_speed_samples) == 1 || x > id(wind_speed_max_sample)) {
+              id(wind_speed_max_sample) = x;
+            }
+          }
+
+  - platform: template
+    id: wind_speed_avg_window
+    name: "${friendly_name} Wind Speed Avg"
+    unit_of_measurement: "m/s"
+    icon: "mdi:weather-windy"
+    accuracy_decimals: 2
+
+  - platform: template
+    id: wind_speed_max_window
+    name: "${friendly_name} Wind Speed Max"
+    unit_of_measurement: "m/s"
+    icon: "mdi:weather-windy"
+    accuracy_decimals: 2
+
+  - platform: adc
+    id: wind_vane_adc
+    pin: GPIO1
+    attenuation: 12db
+    update_interval: 500ms
+    internal: true
+    filters:
+      - median:
+          window_size: 3
+          send_every: 1
+          send_first_at: 1
+
+  - platform: resistance
+    id: wind_vane_resistance
+    sensor: wind_vane_adc
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    reference_voltage: 3.3V
+    internal: true
+    on_value:
+      - lambda: |-
+          struct Point { float ohm; float deg; };
+          static const Point table[] = {
+            {3000.0f,   0.0f},
+            {15220.0f,  22.5f},
+            { 12200.0f,  45.0f},
+            { 68760.0f,  90.0f},
+            { 46500.0f, 135.0f},
+            {25500.0f, 180.0f},
+            { 31700.0f, 202.5f},
+            {6200.0f, 225.0f},
+            {830.0f,270.0f},
+            {1520.0f, 315.0f},
+          };
+
+          float best_deg = table[0].deg;
+          float best_err = fabsf(x - table[0].ohm);
+          for (size_t i = 1; i < (sizeof(table) / sizeof(table[0])); i++) {
+            const float err = fabsf(x - table[i].ohm);
+            if (err < best_err) {
+              best_err = err;
+              best_deg = table[i].deg;
+            }
+          }
+
+          id(wind_heading).publish_state(best_deg);
+
+  - platform: template
+    id: wind_heading
+    name: "${friendly_name} Wind Direction"
+    unit_of_measurement: "°"
+    icon: "mdi:compass"
+    accuracy_decimals: 1
+    on_value:
+      - lambda: |-
+          if (!isnan(x)) {
+            const float rad = x * 3.14159265f / 180.0f;
+            id(wind_dir_sin_sum) += sinf(rad);
+            id(wind_dir_cos_sum) += cosf(rad);
+            id(wind_dir_samples) += 1;
+          }
+
+  - platform: template
+    id: wind_heading_avg_window
+    name: "${friendly_name} Wind Direction Avg"
+    unit_of_measurement: "°"
+    icon: "mdi:compass"
+    accuracy_decimals: 1
+
+  - platform: adc
+    id: battery_voltage_raw
+    pin: GPIO0
+    attenuation: 12db
+    internal: true
+    update_interval: 30s
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1
+          send_first_at: 1
+      - multiply: ${battery_divider_factor}
+
+  - platform: copy
+    source_id: battery_voltage_raw
+    id: battery_voltage
+    name: "${friendly_name} Battery Voltage"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    icon: "mdi:battery"
+
+  - platform: copy
+    source_id: battery_voltage
+    id: battery_level_percent
+    name: "${friendly_name} Battery Level"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    device_class: battery
+    state_class: measurement
+    filters:
+      - calibrate_linear:
+          - ${battery_empty_voltage} -> 0
+          - 3.70 -> 50
+          - ${battery_full_voltage} -> 100
+      - lambda: |-
+          if (x < 0.0f) return 0.0f;
+          if (x > 100.0f) return 100.0f;
+          return x;
+
+  - platform: sht4x
+    temperature:
+      name: "Temperature"
+      id: temperature
+    humidity:
+      name: "Humidity"
+      id: humidity
+
+text_sensor:
+  - platform: template
+    name: "${friendly_name} Firmware Version"
+    id: firmware_version_text
+    icon: "mdi:identifier"
+    update_interval: never
+    lambda: |-
+      return {"${fw_version}"};
+
+  - platform: wifi_info
+    ip_address:
+      name: "${friendly_name} IP"
+    ssid:
+      name: "${friendly_name} SSID"
+
+interval:
+  - interval: ${wg_test_interval}
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - script.execute: send_fake_windguru
+          else:
+            - logger.log: "WG test send skipped: WiFi not connected"
+
+#deep_sleep:
+#  id: sleep_ctrl
+#  run_duration: ${run_duration}
+#  sleep_duration: ${sleep_duration}

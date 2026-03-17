@@ -78,6 +78,12 @@ Current example:
 ./scripts/publish.sh skalka
 ```
 
+Test-tuning example:
+
+```bash
+./scripts/publish.sh skalka test
+```
+
 ## Firmware publish (Docker)
 
 Run from repo root:
@@ -86,17 +92,26 @@ Run from repo root:
 ./scripts/publish.sh skalka
 ```
 
+To publish the tuning/test config instead:
+
+```bash
+./scripts/publish.sh skalka test
+```
+
 Prerequisites:
 - Docker deamon is running (if you do not have Docker download and install for your OS)
 - `git` and `python3` are installed
 
 What the script does:
-1. Compiles `skalka/esp_config/main.yaml` using the Docker ESPHome image.
+1. Compiles `skalka/esp_config/main.yaml` by default, or `skalka/esp_config/main.test.yaml` when `test` is passed as the second argument.
 2. Copies built firmware images to:
    - `skalka/firmware/firmware.factory.bin`
    - `skalka/firmware/firmware.ota.bin`
 3. Generates `skalka/firmware/manifest.json` with version and md5 hashes.
 4. Stages, commits, and pushes firmware artifacts and manifest to `origin/main`.
+
+Note:
+- `./scripts/publish.sh skalka test` still publishes to the same `skalka/firmware/` files and manifest as the normal publish flow, so it temporarily replaces the regular published firmware until the next standard publish.
 
 ## Firmware file types
 
@@ -144,4 +159,4 @@ Included assets:
 - A local/fake Windguru sender currently exists for testing.
 - Deep sleep is still commented out while the short active measurement cycle is being validated.
 - Final production aggregation should send one payload per wake cycle, including vector-averaged wind direction.
-- create a separate testing yaml for tunning at home, without deepsleep and with full information plus battery, reset buttom etc
+- `skalka/esp_config/main.test.yaml` exists as the tuning-oriented config with the current development behavior.
