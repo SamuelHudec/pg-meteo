@@ -144,3 +144,4 @@ Included assets:
 - A local/fake Windguru sender currently exists for testing.
 - Deep sleep is still commented out while the short active measurement cycle is being validated.
 - Final production aggregation should send one payload per wake cycle, including vector-averaged wind direction.
+- create a separate testing yaml for tunning at home, without deepsleep and with full information plus battery, reset buttom etc
