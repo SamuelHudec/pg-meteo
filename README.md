@@ -27,32 +27,35 @@ This is only a rough parts estimate. It does not include printed parts, fastener
 
 ## What the station does
 
-The intended device behavior is:
+The production device behavior is:
 
 1. Wake up from deep sleep.
-2. Wait briefly for sensor and Wi-Fi stabilization.
+2. Power sensors and wait briefly for stabilization.
 3. Measure:
    - temperature
    - humidity
    - wind speed
    - wind direction
-4. Aggregate one payload for Windguru:
+4. Keep Wi-Fi off during the measurement window to save energy.
+5. Aggregate one payload for Windguru:
    - temperature
    - humidity
    - average wind speed
    - maximum wind speed
    - wind direction
-5. Send the payload to `windguru.cz`.
-6. Go back to deep sleep.
+6. Enable Wi-Fi only after measurement is complete.
+7. Send the payload to `windguru.cz`.
+8. Check for OTA updates at most once per day.
+9. Go back to deep sleep.
 
-During development, deep sleep can stay disabled so the short-period measurement and upload flow can be validated while the node remains awake.
+For tuning and debugging, `main.test.yaml` keeps the development-oriented always-on behavior.
 
 ## OTA update behavior
 
-On boot, the device:
+In the production config, the device:
 
-1. waits for Wi-Fi for a limited time
-2. checks the published firmware manifest in this repo
+1. enables Wi-Fi only after the measurement phase
+2. checks the published firmware manifest in this repo at most once per day
 3. if a newer version is available, it downloads and installs the update automatically
 
 The OTA manifest is hosted from this repository and referenced by the ESPHome config in `skalka/esp_config/main.yaml`.
@@ -67,35 +70,49 @@ For a first flash or a recovery flash:
 4. Choose `firmware.factory.bin`
 5. Flash the device from the browser UI.
 
-## Multiple weather stations
-
-- The repository is prepared so the same workflow can be reused for more than one weather station.
-- The weather station name is passed as a parameter to the publish script.
-
-Current example:
-
-```bash
-./scripts/publish.sh skalka
-```
-
-Test-tuning example:
-
-```bash
-./scripts/publish.sh skalka test
-```
-
-## Firmware publish (Docker)
+## Firmware verification
 
 Run from repo root:
 
 ```bash
-./scripts/publish.sh skalka
+./scripts/verify.sh <station>
+```
+
+To verify the tuning/test config instead:
+
+```bash
+./scripts/verify.sh <station> test
+```
+
+Example:
+
+```bash
+./scripts/verify.sh skalka
+```
+
+What the script does:
+1. Compiles `<station>/esp_config/main.yaml` by default, or `<station>/esp_config/main.test.yaml` when `test` is passed as the second argument.
+2. Verifies that the expected OTA and factory binaries were produced.
+3. Does not copy firmware, generate manifests, commit, or push anything.
+
+## Firmware publish
+
+Run from repo root:
+
+```bash
+./scripts/publish.sh <station>
 ```
 
 To publish the tuning/test config instead:
 
 ```bash
-./scripts/publish.sh skalka test
+./scripts/publish.sh <station> test
+```
+
+Example:
+
+```bash
+./scripts/publish.sh skalka
 ```
 
 Prerequisites:
@@ -103,15 +120,15 @@ Prerequisites:
 - `git` and `python3` are installed
 
 What the script does:
-1. Compiles `skalka/esp_config/main.yaml` by default, or `skalka/esp_config/main.test.yaml` when `test` is passed as the second argument.
+1. Compiles `<station>/esp_config/main.yaml` by default, or `<station>/esp_config/main.test.yaml` when `test` is passed as the second argument.
 2. Copies built firmware images to:
-   - `skalka/firmware/firmware.factory.bin`
-   - `skalka/firmware/firmware.ota.bin`
-3. Generates `skalka/firmware/manifest.json` with version and md5 hashes.
+   - `<station>/firmware/firmware.factory.bin`
+   - `<station>/firmware/firmware.ota.bin`
+3. Generates `<station>/firmware/manifest.json` with version and md5 hashes.
 4. Stages, commits, and pushes firmware artifacts and manifest to `origin/main`.
 
 Note:
-- `./scripts/publish.sh skalka test` still publishes to the same `skalka/firmware/` files and manifest as the normal publish flow, so it temporarily replaces the regular published firmware until the next standard publish.
+- `./scripts/publish.sh <station> test` still publishes to the same `<station>/firmware/` files and manifest as the normal publish flow, so it temporarily replaces the regular published firmware until the next standard publish.
 
 ## Firmware file types
 
@@ -157,6 +174,6 @@ Included assets:
 - Wind direction is derived from the vane resistance through an ADC -> resistance -> heading mapping.
 - Temperature and humidity are read from the SHT4x sensor.
 - A local/fake Windguru sender currently exists for testing.
-- Deep sleep is still commented out while the short active measurement cycle is being validated.
-- Final production aggregation should send one payload per wake cycle, including vector-averaged wind direction.
-- `skalka/esp_config/main.test.yaml` exists as the tuning-oriented config with the current development behavior.
+- `skalka/esp_config/main.yaml` is the production-oriented config with measure-first, Wi-Fi-late, deep-sleep behavior.
+- `skalka/esp_config/main.test.yaml` is the tuning-oriented config with the development behavior.
+- The production flow sends one payload per wake cycle, including vector-averaged wind direction.
