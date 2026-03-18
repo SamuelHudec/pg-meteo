@@ -25,6 +25,10 @@ Rough total for the listed electronics is about `1,900 CZK`.
 
 This is only a rough parts estimate. It does not include printed parts, fasteners, shipping, or any replacement/alternative components.
 
+3D printable parts are also included in the repository:
+- enclosure models in `3D/enclosure/`
+- mounting arms and holders in `3D/mount/`
+
 ## What the station does
 
 The production device behavior is:
@@ -70,32 +74,11 @@ For a first flash or a recovery flash:
 4. Choose `firmware.factory.bin`
 5. Flash the device from the browser UI.
 
-## Firmware verification
-
-Run from repo root:
-
-```bash
-./scripts/verify.sh <station>
-```
-
-To verify the tuning/test config instead:
-
-```bash
-./scripts/verify.sh <station> test
-```
-
-Example:
-
-```bash
-./scripts/verify.sh skalka
-```
-
-What the script does:
-1. Compiles `<station>/esp_config/main.yaml` by default, or `<station>/esp_config/main.test.yaml` when `test` is passed as the second argument.
-2. Verifies that the expected OTA and factory binaries were produced.
-3. Does not copy firmware, generate manifests, commit, or push anything.
-
 ## Firmware publish
+
+Prerequisites:
+- Docker deamon is running (if you do not have Docker download and install for your OS)
+- `git` and `python3` are installed
 
 Run from repo root:
 
@@ -115,10 +98,6 @@ Example:
 ./scripts/publish.sh skalka
 ```
 
-Prerequisites:
-- Docker deamon is running (if you do not have Docker download and install for your OS)
-- `git` and `python3` are installed
-
 What the script does:
 1. Compiles `<station>/esp_config/main.yaml` by default, or `<station>/esp_config/main.test.yaml` when `test` is passed as the second argument.
 2. Copies built firmware images to:
@@ -129,6 +108,7 @@ What the script does:
 
 Note:
 - `./scripts/publish.sh <station> test` still publishes to the same `<station>/firmware/` files and manifest as the normal publish flow, so it temporarily replaces the regular published firmware until the next standard publish.
+- For quick development checks, use `./scripts/verify.sh <station>` or `./scripts/verify.sh <station> test` instead. It compiles the selected config and validates that OTA and factory binaries were produced, but it does not copy firmware, generate manifests, commit, or push anything.
 
 ## Firmware file types
 
@@ -159,14 +139,6 @@ What it does:
 - prints a short summary to the terminal
 
 This is useful while validating the measurement and upload flow before switching to the real `windguru.cz` endpoint.
-
-## 3D printable parts
-
-The repository also contains 3D models for printed hardware parts in the [`3D/`](3D) folder.
-
-Included assets:
-- enclosure models in `3D/enclosure/`
-- mounting arms and holders in `3D/mount/`
 
 ## Current implementation notes
 
