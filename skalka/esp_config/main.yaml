@@ -11,9 +11,6 @@ substitutions:
   wg_test_uid: "97411"
   measurement_window: 60s
   anemometer_factor: "0.005560619"
-  battery_empty_voltage: "3.20"
-  battery_full_voltage: "4.20"
-  battery_divider_factor: "1.714286"
 
 esphome:
   name: ${device_name}
@@ -26,7 +23,6 @@ esphome:
     then:
       - wifi.disable:
       - switch.turn_on: i2c_power
-      - component.update: firmware_version_text
       - script.execute: production_cycle
 
 esp32:
@@ -391,47 +387,6 @@ sensor:
     icon: "mdi:compass"
     accuracy_decimals: 1
 
-  - platform: adc
-    id: battery_voltage_raw
-    pin: GPIO0
-    attenuation: 12db
-    internal: true
-    update_interval: 30s
-    filters:
-      - median:
-          window_size: 5
-          send_every: 1
-          send_first_at: 1
-      - multiply: ${battery_divider_factor}
-
-  - platform: copy
-    source_id: battery_voltage_raw
-    id: battery_voltage
-    name: "${friendly_name} Battery Voltage"
-    unit_of_measurement: "V"
-    device_class: voltage
-    state_class: measurement
-    accuracy_decimals: 2
-    icon: "mdi:battery"
-
-  - platform: copy
-    source_id: battery_voltage
-    id: battery_level_percent
-    name: "${friendly_name} Battery Level"
-    unit_of_measurement: "%"
-    accuracy_decimals: 0
-    device_class: battery
-    state_class: measurement
-    filters:
-      - calibrate_linear:
-          - ${battery_empty_voltage} -> 0
-          - 3.70 -> 50
-          - ${battery_full_voltage} -> 100
-      - lambda: |-
-          if (x < 0.0f) return 0.0f;
-          if (x > 100.0f) return 100.0f;
-          return x;
-
   - platform: sht4x
     update_interval: 15s
     temperature:
@@ -440,21 +395,6 @@ sensor:
     humidity:
       name: "Humidity"
       id: humidity
-
-text_sensor:
-  - platform: template
-    name: "${friendly_name} Firmware Version"
-    id: firmware_version_text
-    icon: "mdi:identifier"
-    update_interval: never
-    lambda: |-
-      return {"${fw_version}"};
-
-  - platform: wifi_info
-    ip_address:
-      name: "${friendly_name} IP"
-    ssid:
-      name: "${friendly_name} SSID"
 
 deep_sleep:
   id: sleep_ctrl

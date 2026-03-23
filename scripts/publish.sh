@@ -35,6 +35,7 @@ SITE_DIR="${REPO_ROOT}/${SITE_DIR_REL}"
 CONFIG_PATH="${SITE_DIR}/esp_config/${CONFIG_FILE_NAME}"
 CONFIG_DIR="$(dirname "${CONFIG_PATH}")"
 BUILD_ROOT="${CONFIG_DIR}/.esphome/build"
+GENERATED_GITIGNORE_PATH="${CONFIG_DIR}/.gitignore"
 FIRMWARE_DIR="${SITE_DIR}/firmware"
 MANIFEST_PATH="${FIRMWARE_DIR}/manifest.json"
 OTA_BIN_OUT_PATH="${FIRMWARE_DIR}/firmware.ota.bin"
@@ -105,6 +106,8 @@ mkdir -p "${PLATFORMIO_CORE_DIR_HOST}"
     -s fw_version "${VERSION}" \
     compile "${SITE_DIR_REL}/esp_config/${CONFIG_FILE_NAME}"
 )
+
+rm -f "${GENERATED_GITIGNORE_PATH}"
 
 if [[ ! -d "${BUILD_ROOT}" ]]; then
   echo "ERROR: Build root not found: ${BUILD_ROOT}"

@@ -207,7 +207,7 @@ sensor:
     name: "${friendly_name} Wind Speed"
     unit_of_measurement: "m/s"
     icon: "mdi:weather-windy"
-    internal_filter: 13us
+    internal_filter: 2ms
     timeout: 5s
     accuracy_decimals: 2
     filters:
