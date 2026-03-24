@@ -1,0 +1,194 @@
+substitutions:
+  device_name: meteo_station
+  friendly_name: Meteo station
+  ota_manifest_url: "https://raw.githubusercontent.com/SamuelHudec/pg-meteo/main/balcony/firmware/manifest.json"
+  wifi_wait_timeout: 15s
+  api_wait_timeout: 10s
+  time_sync_timeout: 15s
+  boot_stabilize_delay: 3s
+  measurement_window: 30s
+  publish_grace_period: 5s
+  sleep_duration: 10min
+  fw_version: 0.0.0-dev
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  project:
+    name: samuelhudec.pg_meteo
+    version: ${fw_version}
+  on_boot:
+    priority: 800
+    then:
+      - wifi.disable:
+      - script.execute: balcony_cycle
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: !secret MS_api_encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  enable_on_boot: false
+  reboot_timeout: 0s
+
+time:
+  - platform: sntp
+    id: sntp_time
+
+http_request:
+  buffer_size_rx: 2048
+  timeout: 10s
+  follow_redirects: true
+
+ota:
+  - platform: esphome
+    password: !secret MS_ota_password
+  - platform: http_request
+    id: ota_http
+
+update:
+  - platform: http_request
+    id: fw_update
+    name: "${friendly_name} Firmware Update"
+    source: ${ota_manifest_url}
+    update_interval: never
+
+deep_sleep:
+  id: deep_sleep_control
+  sleep_duration: ${sleep_duration}
+
+i2c:
+  sda: 19
+  scl: 18
+  scan: true
+  id: bus_a
+
+switch:
+  - platform: gpio
+    pin: GPIO3
+    id: my_output
+    restore_mode: ALWAYS_ON
+
+globals:
+  - id: ota_last_check_key
+    type: int
+    restore_value: yes
+    initial_value: "-1"
+
+script:
+  - id: enter_balcony_sleep
+    mode: restart
+    then:
+      - logger.log: "Cycle: entering deep sleep"
+      - wifi.disable:
+      - deep_sleep.enter: deep_sleep_control
+
+  - id: maybe_check_ota
+    mode: restart
+    then:
+      - if:
+          condition:
+            time.has_time:
+          then:
+            - if:
+                condition:
+                  lambda: |-
+                    const auto now = id(sntp_time).now();
+                    const int today_key = now.year * 1000 + now.day_of_year;
+                    return id(ota_last_check_key) != today_key;
+                then:
+                  - lambda: |-
+                      const auto now = id(sntp_time).now();
+                      id(ota_last_check_key) = now.year * 1000 + now.day_of_year;
+                  - logger.log: "OTA: daily check started"
+                  - update.check: fw_update
+                  - if:
+                      condition:
+                        update.is_available: fw_update
+                      then:
+                        - logger.log: "OTA: update available, starting update"
+                        - delay: 3s
+                        - update.perform: fw_update
+                      else:
+                        - logger.log: "OTA: no update available"
+                else:
+                  - logger.log: "OTA: daily check already done"
+          else:
+            - logger.log: "OTA: skipped, time not valid"
+
+  - id: balcony_cycle
+    mode: restart
+    then:
+      - logger.log: "Cycle: measurement phase started"
+      - delay: ${boot_stabilize_delay}
+      - delay: ${measurement_window}
+      - logger.log: "Cycle: measurement done, connecting WiFi"
+      - wifi.enable:
+      - wait_until:
+          condition:
+            wifi.connected:
+          timeout: ${wifi_wait_timeout}
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - wait_until:
+                condition:
+                  api.connected:
+                timeout: ${api_wait_timeout}
+            - if:
+                condition:
+                  api.connected:
+                then:
+                  - logger.log: "Cycle: Home Assistant connected, allowing publish window"
+                  - delay: ${publish_grace_period}
+                else:
+                  - logger.log: "Cycle: Home Assistant API timeout"
+            - wait_until:
+                condition:
+                  time.has_time:
+                timeout: ${time_sync_timeout}
+            - script.execute: maybe_check_ota
+            - script.execute: enter_balcony_sleep
+          else:
+            - logger.log: "Cycle: WiFi timeout, sleeping without upload"
+            - script.execute: enter_balcony_sleep
+
+sensor:
+  - platform: bme680
+    temperature:
+      name: "${device_name} Temperature"
+      id: "${device_name}_Temperature"
+    pressure:
+      name: "${device_name} Pressure"
+      id: "${device_name}_Pressure"
+    humidity:
+      name: "${device_name} Humidity"
+      id: "${device_name}_Humidity"
+    gas_resistance:
+      name: "${device_name} Gas Resistance"
+      id: "${device_name}_Gas_Resistance"
+    address: 0x77
+    update_interval: 10s
+
+  - platform: scd4x
+    co2:
+      name: "${device_name} CO2"
+      id: "${device_name}_co2"
+    temperature:
+      name: "${device_name} Temperature co2"
+      id: "${device_name}_Temperature_co2"
+    humidity:
+      name: "${device_name} Humidity co2"
+      id: "${device_name}_Humidity_co2"
+    update_interval: 10s
