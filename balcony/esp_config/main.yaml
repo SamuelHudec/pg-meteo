@@ -2,12 +2,9 @@ substitutions:
   device_name: meteo_station
   friendly_name: Meteo station
   ota_manifest_url: "https://raw.githubusercontent.com/SamuelHudec/pg-meteo/main/balcony/firmware/manifest.json"
-  wifi_wait_timeout: 15s
-  api_wait_timeout: 10s
   time_sync_timeout: 15s
-  boot_stabilize_delay: 3s
-  measurement_window: 30s
-  publish_grace_period: 5s
+  ota_check_delay: 10s
+  run_duration: 30s
   sleep_duration: 10min
   fw_version: 0.0.0-dev
 
@@ -18,10 +15,10 @@ esphome:
     name: samuelhudec.pg_meteo
     version: ${fw_version}
   on_boot:
-    priority: 800
+    priority: 200
     then:
-      - wifi.disable:
-      - script.execute: balcony_cycle
+      - delay: ${ota_check_delay}
+      - script.execute: maybe_check_ota
 
 esp32:
   board: esp32-c3-devkitm-1
@@ -38,7 +35,6 @@ api:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  enable_on_boot: false
   reboot_timeout: 0s
 
 time:
@@ -65,6 +61,7 @@ update:
 
 deep_sleep:
   id: deep_sleep_control
+  run_duration: ${run_duration}
   sleep_duration: ${sleep_duration}
 
 i2c:
@@ -86,13 +83,6 @@ globals:
     initial_value: "-1"
 
 script:
-  - id: enter_balcony_sleep
-    mode: restart
-    then:
-      - logger.log: "Cycle: entering deep sleep"
-      - wifi.disable:
-      - deep_sleep.enter: deep_sleep_control
-
   - id: maybe_check_ota
     mode: restart
     then:
@@ -126,44 +116,6 @@ script:
           else:
             - logger.log: "OTA: skipped, time not valid"
 
-  - id: balcony_cycle
-    mode: restart
-    then:
-      - logger.log: "Cycle: measurement phase started"
-      - delay: ${boot_stabilize_delay}
-      - delay: ${measurement_window}
-      - logger.log: "Cycle: measurement done, connecting WiFi"
-      - wifi.enable:
-      - wait_until:
-          condition:
-            wifi.connected:
-          timeout: ${wifi_wait_timeout}
-      - if:
-          condition:
-            wifi.connected:
-          then:
-            - wait_until:
-                condition:
-                  api.connected:
-                timeout: ${api_wait_timeout}
-            - if:
-                condition:
-                  api.connected:
-                then:
-                  - logger.log: "Cycle: Home Assistant connected, allowing publish window"
-                  - delay: ${publish_grace_period}
-                else:
-                  - logger.log: "Cycle: Home Assistant API timeout"
-            - wait_until:
-                condition:
-                  time.has_time:
-                timeout: ${time_sync_timeout}
-            - script.execute: maybe_check_ota
-            - script.execute: enter_balcony_sleep
-          else:
-            - logger.log: "Cycle: WiFi timeout, sleeping without upload"
-            - script.execute: enter_balcony_sleep
-
 sensor:
   - platform: bme680
     temperature:
@@ -179,7 +131,7 @@ sensor:
       name: "${device_name} Gas Resistance"
       id: "${device_name}_Gas_Resistance"
     address: 0x77
-    update_interval: 10s
+    update_interval: 5s
 
   - platform: scd4x
     co2:
@@ -191,4 +143,4 @@ sensor:
     humidity:
       name: "${device_name} Humidity co2"
       id: "${device_name}_Humidity_co2"
-    update_interval: 10s
+    update_interval: 5s

@@ -12,7 +12,7 @@ substitutions:
   wg_test_uid: "97411"
   measurement_window: 60s
   wg_test_interval: ${measurement_window}
-  anemometer_factor: "0.005560619"
+  anemometer_factor: "0.003475387"
   battery_empty_voltage: "3.20"
   battery_full_voltage: "4.20"
   battery_divider_factor: "1.714286"
@@ -207,7 +207,7 @@ sensor:
     name: "${friendly_name} Wind Speed"
     unit_of_measurement: "m/s"
     icon: "mdi:weather-windy"
-    internal_filter: 2ms
+    internal_filter: 5ms
     timeout: 5s
     accuracy_decimals: 2
     filters:
