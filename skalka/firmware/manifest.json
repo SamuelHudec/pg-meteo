@@ -1,18 +1,18 @@
 {
   "name": "weather-station-skalka",
-  "version": "2026.3.25-114448",
+  "version": "2026.3.26-104234",
   "builds": [
     {
       "chipFamily": "ESP32-C3",
       "ota": {
         "path": "firmware.ota.bin",
-        "md5": "f9004aac37efc1e882180f3bac7ad2fb",
-        "summary": "Auto-published build 2026.3.25-114448"
+        "md5": "d44d3dd21ecb5cac2dd486fac039e4ba",
+        "summary": "Auto-published build 2026.3.26-104234"
       },
       "factory": {
         "path": "firmware.factory.bin",
-        "md5": "8fbad5756926e14f6ef67382e2bddc61",
-        "summary": "Auto-published build 2026.3.25-114448"
+        "md5": "6419be043bfcb93b8ecbad0fb70e8f15",
+        "summary": "Auto-published build 2026.3.26-104234"
       }
     }
   ]
