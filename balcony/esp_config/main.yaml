@@ -3,7 +3,6 @@ substitutions:
   friendly_name: Meteo station
   ota_manifest_url: "https://raw.githubusercontent.com/SamuelHudec/pg-meteo/main/balcony/firmware/manifest.json"
   time_sync_timeout: 15s
-  ota_check_delay: 10s
   run_duration: 30s
   sleep_duration: 10min
   fw_version: 0.0.0-dev
@@ -17,7 +16,10 @@ esphome:
   on_boot:
     priority: 200
     then:
-      - delay: ${ota_check_delay}
+      - wait_until:
+          condition:
+            time.has_time:
+          timeout: ${time_sync_timeout}
       - script.execute: maybe_check_ota
 
 esp32:
