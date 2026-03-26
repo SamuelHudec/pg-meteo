@@ -126,6 +126,14 @@ Run it from the repo root:
 python3 test_server/fake_windguru_server.py
 ```
 
+Windows shortcut:
+
+```text
+test_server\run_fake_windguru_windows.bat
+```
+
+This starts the same fake server and keeps the window open so it is easier to use on a non-developer Windows machine.
+
 It listens on:
 
 ```text
