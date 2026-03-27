@@ -1,18 +1,18 @@
 {
   "name": "meteo_station",
-  "version": "2026.3.27-172730",
+  "version": "2026.3.27-172925",
   "builds": [
     {
       "chipFamily": "ESP32-C3",
       "ota": {
         "path": "firmware.ota.bin",
-        "md5": "b12bc30d684e3f31c984de832a659eb4",
-        "summary": "Auto-published build 2026.3.27-172730"
+        "md5": "7bb92438a51bf95f96e8c6837b104afb",
+        "summary": "Auto-published build 2026.3.27-172925"
       },
       "factory": {
         "path": "firmware.factory.bin",
-        "md5": "9cdd71bd075796a4e1251fcac7e7c02b",
-        "summary": "Auto-published build 2026.3.27-172730"
+        "md5": "71125bc7e969b6a79ce6131bffb6567e",
+        "summary": "Auto-published build 2026.3.27-172925"
       }
     }
   ]
