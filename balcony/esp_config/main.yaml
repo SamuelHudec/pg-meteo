@@ -2,11 +2,13 @@ substitutions:
   device_name: meteo_station
   friendly_name: Meteo station
   ota_manifest_url: "https://raw.githubusercontent.com/SamuelHudec/pg-meteo/main/balcony/firmware/manifest.json"
-  wifi_wait_timeout: 30s
-  time_sync_timeout: 30s
+  wifi_wait_timeout: 15s
+  time_sync_timeout: 15s
+  ha_wait_timeout: 5s
+  ha_publish_grace: 5s
   boot_stabilize_delay: 3s
   measurement_window: 60s
-  run_duration: 3min
+  run_duration: 100s
   sleep_duration: 1min
   fw_version: 0.0.0-dev
   wg_test_url: "http://192.168.1.2:8080/upload/api.php"
@@ -205,6 +207,17 @@ script:
                 condition:
                   time.has_time:
                 then:
+                  # Balcony-only Home Assistant grace period:
+                  # wait for API and trigger one fresh sensor read while connected
+                  # so observations are visible in HA. Do not copy this behavior to
+                  # the low-power Skalka production config.
+                  - wait_until:
+                      condition:
+                        api.connected:
+                      timeout: ${ha_wait_timeout}
+                  - component.update: balcony_bme680
+                  - component.update: balcony_scd4x
+                  - delay: ${ha_publish_grace}
                   - lambda: |-
                       ESP_LOGI("cycle", "Cycle: time sync ready, sending data");
                   - script.execute: send_fake_windguru
@@ -219,6 +232,7 @@ script:
 
 sensor:
   - platform: bme680
+    id: balcony_bme680
     temperature:
       name: "${device_name} Temperature"
       id: meteo_station_Temperature
@@ -235,6 +249,7 @@ sensor:
     update_interval: 15s
 
   - platform: scd4x
+    id: balcony_scd4x
     co2:
       name: "${device_name} CO2"
       id: meteo_station_co2
