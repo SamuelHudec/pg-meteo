@@ -107,38 +107,11 @@ globals:
     type: bool
     restore_value: no
     initial_value: "false"
-  - id: ota_check_started_this_boot
-    type: bool
-    restore_value: no
-    initial_value: "false"
 
 script:
-  - id: start_ota_check
+  - id: continue_after_ota_check
     mode: restart
     then:
-      - if:
-          condition:
-            lambda: |-
-              return !id(ota_check_started_this_boot);
-          then:
-            - lambda: |-
-                id(ota_check_started_this_boot) = true;
-            - logger.log: "OTA: check started"
-            - update.check: fw_update
-
-  - id: enter_production_sleep
-    mode: restart
-    then:
-      - logger.log: "Cycle: entering deep sleep"
-      - delay: ${pre_sleep_network_settle_delay}
-      - wifi.disable:
-      - delay: ${pre_sleep_network_settle_delay}
-      - deep_sleep.enter: sleep_ctrl
-
-  - id: maybe_check_ota
-    mode: restart
-    then:
-      - delay: ${ota_check_result_timeout}
       - if:
           condition:
             lambda: |-
@@ -146,68 +119,7 @@ script:
           then:
             - logger.log: "OTA: install in progress"
           else:
-            - logger.log: "OTA: no update available"
-            - script.execute: enter_production_sleep
-
-  - id: send_fake_windguru
-    mode: queued
-    then:
-      - http_request.get:
-          url: !lambda |-
-            char buf[384];
-            const float temp = isnan(id(meteo_station_Temperature).state) ? 22.5f : id(meteo_station_Temperature).state;
-            const float hum = isnan(id(meteo_station_Humidity).state) ? 55.0f : id(meteo_station_Humidity).state;
-            const float pressure = isnan(id(meteo_station_Pressure).state) ? 1013.2f : id(meteo_station_Pressure).state;
-            const auto now = id(sntp_time).now();
-            const long timestamp = now.timestamp;
-            const float wind_avg_knots = 0.0f;
-            const float wind_max_knots = 0.0f;
-            const int wind_dir = 180;
-            snprintf(
-              buf,
-              sizeof(buf),
-              "${fake_windguru_url}?uid=${fake_windguru_uid}&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=%.2f",
-              timestamp,
-              wind_avg_knots,
-              wind_max_knots,
-              wind_dir,
-              temp,
-              hum,
-              pressure
-            );
-            return std::string(buf);
-          on_response:
-            then:
-              - lambda: |-
-                  ESP_LOGI("windguru", "Windguru send complete: HTTP %d in %u ms", response->status_code, response->duration_ms);
-              - script.execute: maybe_check_ota
-          on_error:
-            then:
-              - lambda: |-
-                  ESP_LOGI("windguru", "Windguru send failed");
-              - script.execute: maybe_check_ota
-
-  - id: production_cycle
-    mode: restart
-    then:
-      - lambda: |-
-          id(ota_install_in_progress) = false;
-          id(ota_check_started_this_boot) = false;
-      - logger.log: "Cycle: measurement phase started"
-      - delay: ${sensor_boot_stabilization_delay}
-      - delay: ${measurement_duration}
-      - logger.log: "Cycle: measurement done, connecting WiFi"
-      - wifi.enable:
-      - wait_until:
-          condition:
-            wifi.connected:
-          timeout: ${wifi_connect_timeout}
-      - if:
-          condition:
-            wifi.connected:
-          then:
-            - logger.log: "Cycle: WiFi connected, starting OTA check and waiting for time sync"
-            - script.execute: start_ota_check
+            - logger.log: "OTA: no update available, waiting for time sync"
             - wait_until:
                 condition:
                   time.has_time:
@@ -228,7 +140,77 @@ script:
                   - script.execute: send_fake_windguru
                 else:
                   - logger.log: "Cycle: time sync timeout, upload skipped"
-                  - script.execute: maybe_check_ota
+                  - script.execute: enter_production_sleep
+
+  - id: enter_production_sleep
+    mode: restart
+    then:
+      - logger.log: "Cycle: entering deep sleep"
+      - delay: ${pre_sleep_network_settle_delay}
+      - wifi.disable:
+      - delay: ${pre_sleep_network_settle_delay}
+      - deep_sleep.enter: sleep_ctrl
+
+  - id: send_fake_windguru
+    mode: queued
+    then:
+      - http_request.get:
+          url: !lambda |-
+            char buf[384];
+            const float temp = isnan(id(meteo_station_Temperature).state) ? 22.5f : id(meteo_station_Temperature).state;
+            const float hum = isnan(id(meteo_station_Humidity).state) ? 55.0f : id(meteo_station_Humidity).state;
+            const float pressure = isnan(id(meteo_station_Pressure).state) ? 1013.2f : id(meteo_station_Pressure).state;
+            const auto now = id(sntp_time).now();
+            const long timestamp = now.timestamp;
+            const float wind_avg_knots = 0.0f;
+            const float wind_max_knots = 0.0f;
+            const int wind_dir = 200;
+            snprintf(
+              buf,
+              sizeof(buf),
+              "${fake_windguru_url}?uid=${fake_windguru_uid}&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=%.2f",
+              timestamp,
+              wind_avg_knots,
+              wind_max_knots,
+              wind_dir,
+              temp,
+              hum,
+              pressure
+            );
+            return std::string(buf);
+          on_response:
+            then:
+              - lambda: |-
+                  ESP_LOGI("windguru", "Windguru send complete: HTTP %d in %u ms", response->status_code, response->duration_ms);
+              - script.execute: enter_production_sleep
+          on_error:
+            then:
+              - lambda: |-
+                  ESP_LOGI("windguru", "Windguru send failed");
+              - script.execute: enter_production_sleep
+
+  - id: production_cycle
+    mode: restart
+    then:
+      - lambda: |-
+          id(ota_install_in_progress) = false;
+      - logger.log: "Cycle: measurement phase started"
+      - delay: ${sensor_boot_stabilization_delay}
+      - delay: ${measurement_duration}
+      - logger.log: "Cycle: measurement done, connecting WiFi"
+      - wifi.enable:
+      - wait_until:
+          condition:
+            wifi.connected:
+          timeout: ${wifi_connect_timeout}
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - logger.log: "Cycle: WiFi connected, checking OTA"
+            - update.check: fw_update
+            - delay: ${ota_check_result_timeout}
+            - script.execute: continue_after_ota_check
           else:
             - logger.log: "Cycle: WiFi timeout, upload skipped"
             - script.execute: enter_production_sleep
