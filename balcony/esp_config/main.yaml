@@ -12,7 +12,7 @@ substitutions:
   measurement_duration: 60s
   deep_sleep_failsafe_run_duration: 100s
   deep_sleep_duration: 5min
-  firmware_version: 0.0.1-dev
+  fw_version: 0.0.1-dev
   fake_windguru_url: "http://192.168.1.2:8080/upload/api.php"
   fake_windguru_uid: "97411"
 
@@ -21,7 +21,7 @@ esphome:
   friendly_name: ${friendly_name}
   project:
     name: samuelhudec.pg_meteo
-    version: ${firmware_version}
+    version: ${fw_version}
   on_boot:
     priority: 800
     then:
@@ -257,5 +257,5 @@ text_sensor:
     name: "${friendly_name} Firmware Version"
     id: firmware_version_text
     lambda: |-
-      return {"${firmware_version}"};
+      return {"${fw_version}"};
     update_interval: 10s
