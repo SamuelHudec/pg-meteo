@@ -2,29 +2,39 @@ substitutions:
   device_name: meteo_station
   friendly_name: Meteo station
   ota_manifest_url: "https://raw.githubusercontent.com/SamuelHudec/pg-meteo/main/balcony/firmware/manifest.json"
-  wifi_wait_timeout: 15s
-  time_sync_timeout: 15s
-  ha_wait_timeout: 5s
-  ha_publish_grace: 5s
-  boot_stabilize_delay: 3s
-  measurement_window: 60s
-  run_duration: 100s
-  sleep_duration: 1min
-  fw_version: 0.0.0-dev
-  wg_test_url: "http://192.168.1.2:8080/upload/api.php"
-  wg_test_uid: "97411"
+  wifi_connect_timeout: 15s
+  sntp_sync_timeout: 15s
+  home_assistant_api_timeout: 5s
+  home_assistant_publish_grace_period: 5s
+  ota_check_result_timeout: 8s
+  pre_sleep_network_settle_delay: 500ms
+  sensor_boot_stabilization_delay: 3s
+  measurement_duration: 60s
+  deep_sleep_failsafe_run_duration: 100s
+  deep_sleep_duration: 5min
+  firmware_version: 0.0.1-dev
+  fake_windguru_url: "http://192.168.1.2:8080/upload/api.php"
+  fake_windguru_uid: "97411"
 
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
   project:
     name: samuelhudec.pg_meteo
-    version: ${fw_version}
+    version: ${firmware_version}
   on_boot:
     priority: 800
     then:
       - wifi.disable:
       - script.execute: production_cycle
+  on_shutdown:
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(ota_install_in_progress);
+          then:
+            - logger.log: "OTA: install handed off, rebooting"
 
 esp32:
   board: esp32-c3-devkitm-1
@@ -67,11 +77,18 @@ update:
     name: "${friendly_name} Firmware Update"
     source: ${ota_manifest_url}
     update_interval: never
+    on_update_available:
+      then:
+        - lambda: |-
+            id(ota_install_in_progress) = true;
+        - logger.log: "OTA: update available, starting update"
+        - delay: 3s
+        - update.perform: fw_update
 
 deep_sleep:
   id: sleep_ctrl
-  run_duration: ${run_duration}
-  sleep_duration: ${sleep_duration}
+  run_duration: ${deep_sleep_failsafe_run_duration}
+  sleep_duration: ${deep_sleep_duration}
 
 i2c:
   sda: 19
@@ -86,57 +103,50 @@ switch:
     restore_mode: ALWAYS_ON
 
 globals:
-  - id: ota_last_check_key
-    type: int
-    restore_value: yes
-    initial_value: "-1"
-  - id: network_phase_done
+  - id: ota_install_in_progress
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: ota_check_started_this_boot
     type: bool
     restore_value: no
     initial_value: "false"
 
 script:
-  - id: enter_production_sleep
-    mode: restart
-    then:
-      - lambda: |-
-          ESP_LOGI("cycle", "Cycle: entering deep sleep");
-      - wifi.disable:
-      - lambda: |-
-          id(network_phase_done) = true;
-      - deep_sleep.enter: sleep_ctrl
-
-  - id: maybe_check_ota
+  - id: start_ota_check
     mode: restart
     then:
       - if:
           condition:
             lambda: |-
-              const auto now = id(sntp_time).now();
-              const int today_key = now.year * 1000 + now.day_of_year;
-              return id(ota_last_check_key) != today_key;
+              return !id(ota_check_started_this_boot);
           then:
             - lambda: |-
-                const auto now = id(sntp_time).now();
-                id(ota_last_check_key) = now.year * 1000 + now.day_of_year;
-            - lambda: |-
-                ESP_LOGI("ota", "OTA: daily check started");
+                id(ota_check_started_this_boot) = true;
+            - logger.log: "OTA: check started"
             - update.check: fw_update
-            - if:
-                condition:
-                  update.is_available: fw_update
-                then:
-                  - lambda: |-
-                      ESP_LOGI("ota", "OTA: update available, starting update");
-                  - delay: 3s
-                  - update.perform: fw_update
-                else:
-                  - lambda: |-
-                      ESP_LOGI("ota", "OTA: no update available");
-                  - script.execute: enter_production_sleep
+
+  - id: enter_production_sleep
+    mode: restart
+    then:
+      - logger.log: "Cycle: entering deep sleep"
+      - delay: ${pre_sleep_network_settle_delay}
+      - wifi.disable:
+      - delay: ${pre_sleep_network_settle_delay}
+      - deep_sleep.enter: sleep_ctrl
+
+  - id: maybe_check_ota
+    mode: restart
+    then:
+      - delay: ${ota_check_result_timeout}
+      - if:
+          condition:
+            lambda: |-
+              return id(ota_install_in_progress);
+          then:
+            - logger.log: "OTA: install in progress"
           else:
-            - lambda: |-
-                ESP_LOGI("ota", "OTA: daily check already done");
+            - logger.log: "OTA: no update available"
             - script.execute: enter_production_sleep
 
   - id: send_fake_windguru
@@ -156,7 +166,7 @@ script:
             snprintf(
               buf,
               sizeof(buf),
-              "${wg_test_url}?uid=${wg_test_uid}&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=%.2f",
+              "${fake_windguru_url}?uid=${fake_windguru_uid}&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=%.2f",
               timestamp,
               wind_avg_knots,
               wind_max_knots,
@@ -181,53 +191,46 @@ script:
     mode: restart
     then:
       - lambda: |-
-          id(network_phase_done) = false;
-      - lambda: |-
-          ESP_LOGI("cycle", "Cycle: measurement phase started");
-      - delay: ${boot_stabilize_delay}
-      - delay: ${measurement_window}
-      - lambda: |-
-          ESP_LOGI("cycle", "Cycle: measurement done, connecting WiFi");
+          id(ota_install_in_progress) = false;
+          id(ota_check_started_this_boot) = false;
+      - logger.log: "Cycle: measurement phase started"
+      - delay: ${sensor_boot_stabilization_delay}
+      - delay: ${measurement_duration}
+      - logger.log: "Cycle: measurement done, connecting WiFi"
       - wifi.enable:
       - wait_until:
           condition:
             wifi.connected:
-          timeout: ${wifi_wait_timeout}
+          timeout: ${wifi_connect_timeout}
       - if:
           condition:
             wifi.connected:
           then:
-            - lambda: |-
-                ESP_LOGI("cycle", "Cycle: WiFi connected, waiting for time sync");
+            - logger.log: "Cycle: WiFi connected, starting OTA check and waiting for time sync"
+            - script.execute: start_ota_check
             - wait_until:
                 condition:
                   time.has_time:
-                timeout: ${time_sync_timeout}
+                timeout: ${sntp_sync_timeout}
             - if:
                 condition:
                   time.has_time:
                 then:
                   # Balcony-only Home Assistant grace period:
-                  # wait for API and trigger one fresh sensor read while connected
-                  # so observations are visible in HA. Do not copy this behavior to
-                  # the low-power Skalka production config.
+                  # wait briefly so observations are visible in HA. Do not copy
+                  # this behavior to the low-power Skalka production config.
                   - wait_until:
                       condition:
                         api.connected:
-                      timeout: ${ha_wait_timeout}
-                  - component.update: balcony_bme680
-                  - component.update: balcony_scd4x
-                  - delay: ${ha_publish_grace}
-                  - lambda: |-
-                      ESP_LOGI("cycle", "Cycle: time sync ready, sending data");
+                      timeout: ${home_assistant_api_timeout}
+                  - delay: ${home_assistant_publish_grace_period}
+                  - logger.log: "Cycle: time sync ready, sending data"
                   - script.execute: send_fake_windguru
                 else:
-                  - lambda: |-
-                      ESP_LOGI("cycle", "Cycle: time sync timeout, upload skipped");
-                  - script.execute: enter_production_sleep
+                  - logger.log: "Cycle: time sync timeout, upload skipped"
+                  - script.execute: maybe_check_ota
           else:
-            - lambda: |-
-                ESP_LOGI("cycle", "Cycle: WiFi timeout, upload skipped");
+            - logger.log: "Cycle: WiFi timeout, upload skipped"
             - script.execute: enter_production_sleep
 
 sensor:
@@ -269,23 +272,8 @@ binary_sensor:
 
 text_sensor:
   - platform: template
-    name: "${friendly_name} OTA Last Check Saved Date"
-    lambda: |-
-      const int key = id(ota_last_check_key);
-      if (key < 0) {
-        return {"unset"};
-      }
-
-      const int year = key / 1000;
-      const int day_of_year = key % 1000;
-      char buffer[32];
-      snprintf(buffer, sizeof(buffer), "%d / day %03d", year, day_of_year);
-      return {buffer};
-    update_interval: 10s
-
-  - platform: template
     name: "${friendly_name} Firmware Version"
     id: firmware_version_text
     lambda: |-
-      return {"${fw_version}"};
+      return {"${firmware_version}"};
     update_interval: 10s
