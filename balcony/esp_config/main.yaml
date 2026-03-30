@@ -12,7 +12,7 @@ substitutions:
   measurement_duration: 60s
   deep_sleep_failsafe_run_duration: 100s
   deep_sleep_duration: 5min
-  fw_version: 0.0.1-dev
+  fw_version: 0.0.2-dev
   fake_windguru_url: "http://192.168.1.2:8080/upload/api.php"
   fake_windguru_uid: "97411"
 
@@ -164,7 +164,7 @@ script:
             const long timestamp = now.timestamp;
             const float wind_avg_knots = 0.0f;
             const float wind_max_knots = 0.0f;
-            const int wind_dir = 200;
+            const int wind_dir = 100;
             snprintf(
               buf,
               sizeof(buf),

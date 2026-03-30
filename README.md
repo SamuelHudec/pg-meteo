@@ -157,3 +157,17 @@ This is useful while validating the measurement and upload flow before switching
 - `skalka/esp_config/main.yaml` is the production-oriented config with measure-first, Wi-Fi-late, deep-sleep behavior.
 - `skalka/esp_config/main.test.yaml` is the tuning-oriented config with the development behavior.
 - The production flow sends one payload per wake cycle, including vector-averaged wind direction.
+
+## Next development ideas
+
+- Rework the production sampling strategy so the reported wind values better represent a full reporting window instead of only one short active period.
+- Evaluate a low-power multi-cycle aggregation design:
+  - wake up periodically
+  - measure briefly with Wi-Fi still disabled
+  - keep partial aggregates across sleep cycles
+  - upload one payload only after the full time window is complete
+- Prefer RTC-retained memory for temporary aggregation state across deep sleep cycles, so the device can avoid frequent flash writes for short-lived measurement data.
+- Compare three implementation variants before changing production behavior:
+  - deep sleep with RTC-retained aggregation state
+  - light sleep between sub-measurements
+  - one longer awake measurement window with Wi-Fi disabled until upload
