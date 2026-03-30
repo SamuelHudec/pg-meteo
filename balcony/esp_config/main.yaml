@@ -109,9 +109,12 @@ globals:
     initial_value: "false"
 
 script:
-  - id: continue_after_ota_check
+  - id: finish_after_upload
     mode: restart
     then:
+      - logger.log: "Cycle: upload finished, checking OTA"
+      - update.check: fw_update
+      - delay: ${ota_check_result_timeout}
       - if:
           condition:
             lambda: |-
@@ -119,28 +122,8 @@ script:
           then:
             - logger.log: "OTA: install in progress"
           else:
-            - logger.log: "OTA: no update available, waiting for time sync"
-            - wait_until:
-                condition:
-                  time.has_time:
-                timeout: ${sntp_sync_timeout}
-            - if:
-                condition:
-                  time.has_time:
-                then:
-                  # Balcony-only Home Assistant grace period:
-                  # wait briefly so observations are visible in HA. Do not copy
-                  # this behavior to the low-power Skalka production config.
-                  - wait_until:
-                      condition:
-                        api.connected:
-                      timeout: ${home_assistant_api_timeout}
-                  - delay: ${home_assistant_publish_grace_period}
-                  - logger.log: "Cycle: time sync ready, sending data"
-                  - script.execute: send_fake_windguru
-                else:
-                  - logger.log: "Cycle: time sync timeout, upload skipped"
-                  - script.execute: enter_production_sleep
+            - logger.log: "OTA: no update available"
+            - script.execute: enter_production_sleep
 
   - id: enter_production_sleep
     mode: restart
@@ -164,7 +147,7 @@ script:
             const long timestamp = now.timestamp;
             const float wind_avg_knots = 0.0f;
             const float wind_max_knots = 0.0f;
-            const int wind_dir = 100;
+            const int wind_dir = 1;
             snprintf(
               buf,
               sizeof(buf),
@@ -182,12 +165,12 @@ script:
             then:
               - lambda: |-
                   ESP_LOGI("windguru", "Windguru send complete: HTTP %d in %u ms", response->status_code, response->duration_ms);
-              - script.execute: enter_production_sleep
+              - script.execute: finish_after_upload
           on_error:
             then:
               - lambda: |-
                   ESP_LOGI("windguru", "Windguru send failed");
-              - script.execute: enter_production_sleep
+              - script.execute: finish_after_upload
 
   - id: production_cycle
     mode: restart
@@ -207,10 +190,28 @@ script:
           condition:
             wifi.connected:
           then:
-            - logger.log: "Cycle: WiFi connected, checking OTA"
-            - update.check: fw_update
-            - delay: ${ota_check_result_timeout}
-            - script.execute: continue_after_ota_check
+            - logger.log: "Cycle: WiFi connected, waiting for time sync"
+            - wait_until:
+                condition:
+                  time.has_time:
+                timeout: ${sntp_sync_timeout}
+            - if:
+                condition:
+                  time.has_time:
+                then:
+                  # Balcony-only Home Assistant grace period:
+                  # wait briefly so observations are visible in HA. Do not copy
+                  # this behavior to the low-power Skalka production config.
+                  - wait_until:
+                      condition:
+                        api.connected:
+                      timeout: ${home_assistant_api_timeout}
+                  - delay: ${home_assistant_publish_grace_period}
+                  - logger.log: "Cycle: time sync ready, sending data"
+                  - script.execute: send_fake_windguru
+                else:
+                  - logger.log: "Cycle: time sync timeout, upload skipped"
+                  - script.execute: finish_after_upload
           else:
             - logger.log: "Cycle: WiFi timeout, upload skipped"
             - script.execute: enter_production_sleep
