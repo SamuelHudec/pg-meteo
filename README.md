@@ -49,8 +49,9 @@ The production device behavior is:
    - wind direction
 6. Enable Wi-Fi only after measurement is complete.
 7. Send the payload to `windguru.cz`.
-8. Check for OTA updates, if new manifest pressent, start updating new firmware.
-9. Go back to deep sleep.
+8. Check the published OTA manifest in this repository.
+9. If a newer firmware version is available, download and install it automatically.
+10. Go back to deep sleep.
 
 For tuning and debugging, `main.test.yaml` keeps the development-oriented always-on behavior.
 
@@ -59,10 +60,11 @@ For tuning and debugging, `main.test.yaml` keeps the development-oriented always
 In the production config, the device:
 
 1. enables Wi-Fi only after the measurement phase
-2. checks the published firmware manifest in this repo at most once per day
-3. if a newer version is available, it downloads and installs the update automatically
+2. uploads the measured payload after Wi-Fi and time sync are ready
+3. checks the published firmware manifest in this repo on each wake cycle
+4. if a newer version is available, it downloads and installs the update automatically
 
-The OTA manifest is hosted from this repository and referenced by the ESPHome config in `skalka/esp_config/main.yaml`.
+The OTA manifest is hosted from this repository and referenced by each station ESPHome config, for example `balcony/esp_config/main.yaml` and `skalka/esp_config/main.yaml`.
 
 ## Manual flashing with ESPHome
 
