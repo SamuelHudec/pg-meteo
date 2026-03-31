@@ -49,7 +49,7 @@ The production device behavior is:
    - wind direction
 6. Enable Wi-Fi only after measurement is complete.
 7. Send the payload to `windguru.cz`.
-8. Check for OTA updates at most once per day.
+8. Check for OTA updates, if new manifest pressent, start updating new firmware.
 9. Go back to deep sleep.
 
 For tuning and debugging, `main.test.yaml` keeps the development-oriented always-on behavior.
