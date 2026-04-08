@@ -2,14 +2,17 @@ substitutions:
   device_name: weather-station-skalka
   friendly_name: Weather Station Skalka
   ota_manifest_url: "https://raw.githubusercontent.com/SamuelHudec/pg-meteo/main/skalka/firmware/manifest.json"
-  wifi_wait_timeout: 15s
-  time_sync_timeout: 15s
-  boot_stabilize_delay: 3s
-  sleep_duration: 10min
-  fw_version: 0.0.0-dev
-  wg_test_url: "http://192.168.1.162:8080/upload/api.php"
-  wg_test_uid: "97411"
-  measurement_window: 60s
+  wifi_connect_timeout: 15s
+  sntp_sync_timeout: 15s
+  ota_check_result_timeout: 8s
+  pre_sleep_network_settle_delay: 500ms
+  sensor_boot_stabilization_delay: 3s
+  measurement_duration: 60s
+  deep_sleep_failsafe_run_duration: 100s
+  deep_sleep_duration: 10min
+  fw_version: 0.1.0
+  windguru_url: "http://192.168.18.3:8080/upload/api.php"
+  windguru_uid: "97411"
   anemometer_factor: "0.005560619"
 
 esphome:
@@ -24,6 +27,14 @@ esphome:
       - wifi.disable:
       - switch.turn_on: i2c_power
       - script.execute: production_cycle
+  on_shutdown:
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(ota_install_in_progress);
+          then:
+            - logger.log: "OTA: install handed off, rebooting"
 
 esp32:
   board: esp32-c3-devkitm-1
@@ -75,6 +86,18 @@ update:
     name: "${friendly_name} Firmware Update"
     source: ${ota_manifest_url}
     update_interval: never
+    on_update_available:
+      then:
+        - lambda: |-
+            id(ota_install_in_progress) = true;
+        - logger.log: "OTA: update available, starting update"
+        - delay: 3s
+        - update.perform: fw_update
+
+deep_sleep:
+  id: sleep_ctrl
+  run_duration: ${deep_sleep_failsafe_run_duration}
+  sleep_duration: ${deep_sleep_duration}
 
 globals:
   - id: wind_speed_sum
@@ -105,10 +128,10 @@ globals:
     type: bool
     restore_value: no
     initial_value: "false"
-  - id: ota_last_check_key
-    type: int
-    restore_value: yes
-    initial_value: "-1"
+  - id: ota_install_in_progress
+    type: bool
+    restore_value: no
+    initial_value: "false"
 
 script:
   - id: reset_measurement_stats
@@ -152,7 +175,7 @@ script:
 
           ESP_LOGI(
             "wind_stats",
-            "Wind ${measurement_window} stats: speed_samples=%d avg=%.2f m/s max=%.2f m/s dir_samples=%d avg_dir=%.1f deg",
+            "Wind ${measurement_duration} stats: speed_samples=%d avg=%.2f m/s max=%.2f m/s dir_samples=%d avg_dir=%.1f deg",
             id(wind_speed_samples),
             avg,
             max_v,
@@ -160,48 +183,34 @@ script:
             avg_dir
           );
 
+  - id: finish_after_upload
+    mode: restart
+    then:
+      - script.execute: reset_measurement_stats
+      - logger.log: "Cycle: upload finished, checking OTA"
+      - update.check: fw_update
+      - delay: ${ota_check_result_timeout}
+      - if:
+          condition:
+            lambda: |-
+              return id(ota_install_in_progress);
+          then:
+            - logger.log: "OTA: install in progress"
+          else:
+            - logger.log: "OTA: no update available"
+            - script.execute: enter_production_sleep
+
   - id: enter_production_sleep
     mode: restart
     then:
       - logger.log: "Cycle: entering deep sleep"
+      - delay: ${pre_sleep_network_settle_delay}
       - wifi.disable:
+      - delay: ${pre_sleep_network_settle_delay}
       - switch.turn_off: i2c_power
       - deep_sleep.enter: sleep_ctrl
 
-  - id: maybe_check_ota
-    mode: restart
-    then:
-      - if:
-          condition:
-            time.has_time:
-          then:
-            - if:
-                condition:
-                  lambda: |-
-                    const auto now = id(sntp_time).now();
-                    const int today_key = now.year * 1000 + now.day_of_year;
-                    return id(ota_last_check_key) != today_key;
-                then:
-                  - lambda: |-
-                      const auto now = id(sntp_time).now();
-                      id(ota_last_check_key) = now.year * 1000 + now.day_of_year;
-                  - logger.log: "OTA: daily check started"
-                  - update.check: fw_update
-                  - if:
-                      condition:
-                        update.is_available: fw_update
-                      then:
-                        - logger.log: "OTA: update available, starting update"
-                        - delay: 3s
-                        - update.perform: fw_update
-                      else:
-                        - logger.log: "OTA: no update available"
-                else:
-                  - logger.log: "OTA: daily check already done"
-          else:
-            - logger.log: "OTA: skipped, time not valid"
-
-  - id: send_fake_windguru
+  - id: send_windguru
     mode: queued
     then:
       - script.execute: finalize_measurement_stats
@@ -218,7 +227,7 @@ script:
             snprintf(
               buf,
               sizeof(buf),
-              "${wg_test_url}?uid=${wg_test_uid}&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
+              "${windguru_url}?uid=${windguru_uid}&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
               timestamp,
               wind_avg_knots,
               wind_max_knots,
@@ -229,49 +238,52 @@ script:
             return std::string(buf);
           on_response:
             then:
-              - logger.log:
-                  format: "Windguru send complete: HTTP %d in %u ms"
-                  args:
-                    - response->status_code
-                    - response->duration_ms
-              - script.execute: maybe_check_ota
-              - script.execute: reset_measurement_stats
-              - script.execute: enter_production_sleep
+              - lambda: |-
+                  ESP_LOGI("windguru", "Windguru send complete: HTTP %d in %u ms", response->status_code, response->duration_ms);
+              - script.execute: finish_after_upload
           on_error:
             then:
-              - logger.log: "Windguru send failed"
-              - script.execute: maybe_check_ota
-              - script.execute: reset_measurement_stats
-              - script.execute: enter_production_sleep
+              - lambda: |-
+                  ESP_LOGI("windguru", "Windguru send failed");
+              - script.execute: finish_after_upload
 
   - id: production_cycle
     mode: restart
     then:
+      - lambda: |-
+          id(ota_install_in_progress) = false;
       - script.execute: reset_measurement_stats
       - lambda: |-
           id(measurement_active) = true;
       - logger.log: "Cycle: measurement phase started"
-      - delay: ${boot_stabilize_delay}
-      - delay: ${measurement_window}
+      - delay: ${sensor_boot_stabilization_delay}
+      - delay: ${measurement_duration}
       - lambda: |-
           id(measurement_active) = false;
-      - script.execute: finalize_measurement_stats
-      - switch.turn_off: i2c_power
       - logger.log: "Cycle: measurement done, connecting WiFi"
       - wifi.enable:
       - wait_until:
           condition:
             wifi.connected:
-          timeout: ${wifi_wait_timeout}
+          timeout: ${wifi_connect_timeout}
       - if:
           condition:
             wifi.connected:
           then:
+            - logger.log: "Cycle: WiFi connected, waiting for time sync"
             - wait_until:
                 condition:
                   time.has_time:
-                timeout: ${time_sync_timeout}
-            - script.execute: send_fake_windguru
+                timeout: ${sntp_sync_timeout}
+            - if:
+                condition:
+                  time.has_time:
+                then:
+                  - logger.log: "Cycle: time sync ready, sending data"
+                  - script.execute: send_windguru
+                else:
+                  - logger.log: "Cycle: time sync timeout, upload skipped"
+                  - script.execute: finish_after_upload
           else:
             - logger.log: "Cycle: WiFi timeout, upload skipped"
             - script.execute: reset_measurement_stats
@@ -396,6 +408,8 @@ sensor:
       name: "Humidity"
       id: humidity
 
-deep_sleep:
-  id: sleep_ctrl
-  sleep_duration: ${sleep_duration}
+binary_sensor:
+  - platform: template
+    name: "${friendly_name} Time Valid"
+    lambda: |-
+      return id(sntp_time).now().is_valid();
