@@ -9,15 +9,20 @@ substitutions:
   sensor_boot_stabilization_delay: 3s
   measurement_duration: 60s
   deep_sleep_failsafe_run_duration: 100s
-  deep_sleep_duration: 10min
+  deep_sleep_duration: 520s
   fw_version: 0.1.0
-  windguru_url: "http://192.168.18.3:8080/upload/api.php"
-  windguru_uid: "97411"
+  fake_windguru_url: "http://192.168.18.3:8080/upload/api.php"
+  fake_windguru_uid: "97411"
+  real_windguru_url: "https://www.windguru.cz/upload/api.php"
+  real_windguru_uid: !secret windguru_station_uid
+  real_windguru_password: !secret windguru_station_password
   anemometer_factor: "0.005560619"
 
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
+  includes:
+    - windguru_auth.h
   project:
     name: samuelhudec.pg_meteo
     version: ${fw_version}
@@ -212,6 +217,58 @@ script:
       - switch.turn_off: i2c_power
       - deep_sleep.enter: sleep_ctrl
 
+  - id: send_real_windguru
+    mode: queued
+    then:
+      - http_request.get:
+          url: !lambda |-
+            char buf[640];
+            const float temp = isnan(id(temperature).state) ? 22.5f : id(temperature).state;
+            const float hum = isnan(id(humidity).state) ? 55.0f : id(humidity).state;
+            const int wind_dir = isnan(id(wind_heading_avg_window).state) ? 180 : (int) roundf(id(wind_heading_avg_window).state);
+            const float wind_avg_knots = id(wind_speed_avg_window).state * 1.94384f;
+            const float wind_max_knots = id(wind_speed_max_window).state * 1.94384f;
+            const auto now = id(sntp_time).now();
+            const long timestamp = now.is_valid() ? now.timestamp : 0;
+            const std::string salt = std::to_string(timestamp);
+            const std::string hash = windguru_md5_hex(
+              salt + std::string("${real_windguru_uid}") + std::string("${real_windguru_password}")
+            );
+            snprintf(
+              buf,
+              sizeof(buf),
+              "${real_windguru_url}?uid=${real_windguru_uid}&salt=%s&hash=%s&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&wind_dir=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
+              salt.c_str(),
+              hash.c_str(),
+              timestamp,
+              wind_avg_knots,
+              wind_max_knots,
+              wind_dir,
+              wind_dir,
+              temp,
+              hum
+            );
+            return std::string(buf);
+          on_response:
+            then:
+              - lambda: |-
+                  auto body = body.value_or("");
+                  ESP_LOGI(
+                    "windguru",
+                    "Real Windguru send complete: HTTP %d in %u ms, body: %s",
+                    response->status_code,
+                    response->duration_ms,
+                    body.c_str()
+                  );
+              - script.execute: finish_after_upload
+          on_error:
+            then:
+              - lambda: |-
+                  ESP_LOGI("windguru", "Real Windguru send failed");
+              - script.execute: finish_after_upload
+          capture_response: true
+          max_response_buffer_size: 512
+
   - id: send_windguru
     mode: queued
     then:
@@ -229,7 +286,7 @@ script:
             snprintf(
               buf,
               sizeof(buf),
-              "${windguru_url}?uid=${windguru_uid}&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
+              "${fake_windguru_url}?uid=${fake_windguru_uid}&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
               timestamp,
               wind_avg_knots,
               wind_max_knots,
@@ -241,13 +298,13 @@ script:
           on_response:
             then:
               - lambda: |-
-                  ESP_LOGI("windguru", "Windguru send complete: HTTP %d in %u ms", response->status_code, response->duration_ms);
-              - script.execute: finish_after_upload
+                  ESP_LOGI("windguru", "Fake Windguru send complete: HTTP %d in %u ms", response->status_code, response->duration_ms);
+              - script.execute: send_real_windguru
           on_error:
             then:
               - lambda: |-
-                  ESP_LOGI("windguru", "Windguru send failed");
-              - script.execute: finish_after_upload
+                  ESP_LOGI("windguru", "Fake Windguru send failed");
+              - script.execute: send_real_windguru
 
   - id: production_cycle
     mode: restart
