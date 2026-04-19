@@ -252,7 +252,6 @@ script:
           on_response:
             then:
               - lambda: |-
-                  auto body = body.value_or("");
                   ESP_LOGI(
                     "windguru",
                     "Real Windguru send complete: HTTP %d in %u ms, body: %s",
