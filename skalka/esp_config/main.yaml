@@ -61,8 +61,10 @@ logger:
   level: INFO
 
 wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
+  networks:
+    - ssid: !secret wifi_ssid
+      password: !secret wifi_password
+    - ssid: "Vyhliadka_FREE"
   enable_on_boot: false
   reboot_timeout: 0s
 
