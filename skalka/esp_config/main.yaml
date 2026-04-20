@@ -6,16 +6,16 @@ substitutions:
   sntp_sync_timeout: 15s
   ota_check_result_timeout: 8s
   pre_sleep_network_settle_delay: 500ms
+  windguru_post_sync_delay: 5s
+  windguru_retry_delay: 5s
   sensor_boot_stabilization_delay: 3s
   measurement_duration: 60s
   deep_sleep_failsafe_run_duration: 100s
   deep_sleep_duration: 520s
-  fw_version: 0.1.0
-  fake_windguru_url: "http://192.168.18.3:8080/upload/api.php"
-  fake_windguru_uid: "97411"
-  real_windguru_url: "https://www.windguru.cz/upload/api.php"
-  real_windguru_uid: !secret windguru_station_uid
-  real_windguru_password: !secret windguru_station_password
+  fw_version: 0.2.3
+  windguru_url: "https://www.windguru.cz/upload/api.php"
+  windguru_uid: !secret windguru_uid
+  windguru_password: !secret windguru_password
   anemometer_factor: "0.005560619"
 
 esphome:
@@ -56,7 +56,7 @@ switch:
   - platform: gpio
     pin: GPIO4
     id: i2c_power
-    restore_mode: ALWAYS_OFF
+    restore_mode: ALWAYS_ON
 
 button:
   - platform: restart
@@ -139,6 +139,10 @@ globals:
     type: bool
     restore_value: no
     initial_value: "false"
+  - id: windguru_retry_pending
+    type: bool
+    restore_value: no
+    initial_value: "false"
 
 script:
   - id: reset_measurement_stats
@@ -194,6 +198,8 @@ script:
     mode: restart
     then:
       - script.execute: reset_measurement_stats
+      - lambda: |-
+          id(windguru_retry_pending) = false;
       - logger.log: "Cycle: upload finished, checking OTA"
       - update.check: fw_update
       - delay: ${ota_check_result_timeout}
@@ -217,44 +223,46 @@ script:
       - switch.turn_off: i2c_power
       - deep_sleep.enter: sleep_ctrl
 
-  - id: send_real_windguru
+  - id: send_windguru
     mode: queued
     then:
+      - script.execute: finalize_measurement_stats
       - http_request.get:
           url: !lambda |-
-            char buf[640];
-            const float temp = isnan(id(temperature).state) ? 22.5f : id(temperature).state;
-            const float hum = isnan(id(humidity).state) ? 55.0f : id(humidity).state;
-            const int wind_dir = isnan(id(wind_heading_avg_window).state) ? 180 : (int) roundf(id(wind_heading_avg_window).state);
-            const float wind_avg_knots = id(wind_speed_avg_window).state * 1.94384f;
-            const float wind_max_knots = id(wind_speed_max_window).state * 1.94384f;
+            char buf[512];
             const auto now = id(sntp_time).now();
             const long timestamp = now.is_valid() ? now.timestamp : 0;
             const std::string salt = std::to_string(timestamp);
             const std::string hash = windguru_md5_hex(
-              salt + std::string("${real_windguru_uid}") + std::string("${real_windguru_password}")
+              salt + std::string("${windguru_uid}") + std::string("${windguru_password}")
             );
-            snprintf(
+            const int wind_dir = isnan(id(wind_heading_avg_window).state)
+              ? 180
+              : (int) roundf(id(wind_heading_avg_window).state);
+            const float wind_avg_knots = id(wind_speed_avg_window).state * 1.94384f;
+            const float wind_max_knots = id(wind_speed_max_window).state * 1.94384f;
+            int written = snprintf(
               buf,
               sizeof(buf),
-              "${real_windguru_url}?uid=${real_windguru_uid}&salt=%s&hash=%s&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&wind_dir=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
+              "${windguru_url}?uid=${windguru_uid}&salt=%s&hash=%s&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f",
               salt.c_str(),
               hash.c_str(),
-              timestamp,
               wind_avg_knots,
               wind_max_knots,
               wind_dir,
-              wind_dir,
-              temp,
-              hum
+              id(temperature).state,
+              id(humidity).state
             );
+            if (written < 0) {
+              return std::string("${windguru_url}?uid=${windguru_uid}");
+            }
             return std::string(buf);
           on_response:
             then:
               - lambda: |-
                   ESP_LOGI(
                     "windguru",
-                    "Real Windguru send complete: HTTP %d in %u ms, body: %s",
+                    "Windguru send complete: HTTP %d in %u ms, body: %s",
                     response->status_code,
                     response->duration_ms,
                     body.c_str()
@@ -262,48 +270,22 @@ script:
               - script.execute: finish_after_upload
           on_error:
             then:
-              - lambda: |-
-                  ESP_LOGI("windguru", "Real Windguru send failed");
-              - script.execute: finish_after_upload
+              - if:
+                  condition:
+                    lambda: |-
+                      return !id(windguru_retry_pending);
+                  then:
+                    - lambda: |-
+                        id(windguru_retry_pending) = true;
+                    - logger.log: "Windguru send failed, retrying once"
+                    - delay: ${windguru_retry_delay}
+                    - script.execute: send_windguru
+                  else:
+                    - lambda: |-
+                        ESP_LOGI("windguru", "Windguru send failed after retry");
+                    - script.execute: finish_after_upload
           capture_response: true
           max_response_buffer_size: 512
-
-  - id: send_windguru
-    mode: queued
-    then:
-      - script.execute: finalize_measurement_stats
-      - http_request.get:
-          url: !lambda |-
-            char buf[384];
-            const float temp = isnan(id(temperature).state) ? 22.5f : id(temperature).state;
-            const float hum = isnan(id(humidity).state) ? 55.0f : id(humidity).state;
-            const int wind_dir = isnan(id(wind_heading_avg_window).state) ? 180 : (int) roundf(id(wind_heading_avg_window).state);
-            const float wind_avg_knots = id(wind_speed_avg_window).state * 1.94384f;
-            const float wind_max_knots = id(wind_speed_max_window).state * 1.94384f;
-            const auto now = id(sntp_time).now();
-            const long timestamp = now.is_valid() ? now.timestamp : 0;
-            snprintf(
-              buf,
-              sizeof(buf),
-              "${fake_windguru_url}?uid=${fake_windguru_uid}&interval=60&unixtime=%ld&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f&mslp=1013.2",
-              timestamp,
-              wind_avg_knots,
-              wind_max_knots,
-              wind_dir,
-              temp,
-              hum
-            );
-            return std::string(buf);
-          on_response:
-            then:
-              - lambda: |-
-                  ESP_LOGI("windguru", "Fake Windguru send complete: HTTP %d in %u ms", response->status_code, response->duration_ms);
-              - script.execute: send_real_windguru
-          on_error:
-            then:
-              - lambda: |-
-                  ESP_LOGI("windguru", "Fake Windguru send failed");
-              - script.execute: send_real_windguru
 
   - id: production_cycle
     mode: restart
@@ -338,6 +320,7 @@ script:
                   time.has_time:
                 then:
                   - logger.log: "Cycle: time sync ready, sending data"
+                  - delay: ${windguru_post_sync_delay}
                   - script.execute: send_windguru
                 else:
                   - logger.log: "Cycle: time sync timeout, upload skipped"
