@@ -7,7 +7,7 @@ substitutions:
   run_duration_seconds: "120"
   run_duration: 120s
   sleep_duration: 10min
-  fw_version: 0.0.0-dev
+  fw_version: 0.0.1-dev
   wg_test_url: "http://192.168.18.3:8080/upload/api.php"
   wg_test_uid: "97411"
   measurement_window: 60s
