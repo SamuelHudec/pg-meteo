@@ -12,7 +12,7 @@ substitutions:
   measurement_duration: 60s
   deep_sleep_failsafe_run_duration: 100s
   deep_sleep_duration: 520s
-  fw_version: 0.2.7
+  fw_version: 0.2.8
   windguru_url: "https://www.windguru.cz/upload/api.php"
   windguru_uid: !secret windguru_uid
   windguru_password: !secret windguru_password
@@ -340,11 +340,15 @@ sensor:
     name: "${friendly_name} Wind Speed"
     unit_of_measurement: "m/s"
     icon: "mdi:weather-windy"
-    internal_filter: 13us
+    internal_filter: 5ms
     timeout: 5s
     accuracy_decimals: 2
     filters:
       - multiply: ${anemometer_factor}
+      - median:
+          window_size: 3
+          send_every: 1
+          send_first_at: 1
       - sliding_window_moving_average:
           window_size: 5
           send_every: 1
