@@ -120,6 +120,10 @@ globals:
     type: float
     restore_value: no
     initial_value: "0.0"
+  - id: wind_speed_min_sample
+    type: float
+    restore_value: no
+    initial_value: "0.0"
   - id: wind_dir_sin_sum
     type: float
     restore_value: no
@@ -153,6 +157,7 @@ script:
           id(wind_speed_sum) = 0.0f;
           id(wind_speed_samples) = 0;
           id(wind_speed_max_sample) = 0.0f;
+          id(wind_speed_min_sample) = 0.0f;
           id(wind_dir_sin_sum) = 0.0f;
           id(wind_dir_cos_sum) = 0.0f;
           id(wind_dir_samples) = 0;
@@ -168,6 +173,9 @@ script:
           const float max_v = id(wind_speed_samples) > 0
             ? id(wind_speed_max_sample)
             : id(wind_speed_ms).state;
+          const float min_v = id(wind_speed_samples) > 0
+            ? id(wind_speed_min_sample)
+            : id(wind_speed_ms).state;
           float avg_dir = id(wind_heading).state;
           if (id(wind_dir_samples) > 0) {
             const float mean_sin = id(wind_dir_sin_sum) / id(wind_dir_samples);
@@ -182,14 +190,16 @@ script:
           }
 
           id(wind_speed_avg_window).publish_state(avg);
+          id(wind_speed_min_window).publish_state(min_v);
           id(wind_speed_max_window).publish_state(max_v);
           id(wind_heading_avg_window).publish_state(avg_dir);
 
           ESP_LOGI(
             "wind_stats",
-            "Wind ${measurement_duration} stats: speed_samples=%d avg=%.2f m/s max=%.2f m/s dir_samples=%d avg_dir=%.1f deg",
+            "Wind ${measurement_duration} stats: speed_samples=%d avg=%.2f m/s min=%.2f m/s max=%.2f m/s dir_samples=%d avg_dir=%.1f deg",
             id(wind_speed_samples),
             avg,
+            min_v,
             max_v,
             id(wind_dir_samples),
             avg_dir
@@ -241,15 +251,17 @@ script:
               ? 180
               : (int) roundf(id(wind_heading_avg_window).state);
             const float wind_avg_knots = id(wind_speed_avg_window).state * 1.94384f;
+            const float wind_min_knots = id(wind_speed_min_window).state * 1.94384f;
             const float wind_max_knots = id(wind_speed_max_window).state * 1.94384f;
             int written = snprintf(
               buf,
               sizeof(buf),
-              "${windguru_url}?uid=${windguru_uid}&salt=%s&hash=%s&wind_avg=%.2f&wind_max=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f",
+              "${windguru_url}?uid=${windguru_uid}&salt=%s&hash=%s&wind_avg=%.2f&wind_max=%.2f&wind_min=%.2f&wind_direction=%d&temperature=%.2f&rh=%.2f",
               salt.c_str(),
               hash.c_str(),
               wind_avg_knots,
               wind_max_knots,
+              wind_min_knots,
               wind_dir,
               id(temperature).state,
               id(humidity).state
@@ -360,6 +372,9 @@ sensor:
             if (id(wind_speed_samples) == 1 || x > id(wind_speed_max_sample)) {
               id(wind_speed_max_sample) = x;
             }
+            if (id(wind_speed_samples) == 1 || x < id(wind_speed_min_sample)) {
+              id(wind_speed_min_sample) = x;
+            }
           }
 
   - platform: template
@@ -372,6 +387,13 @@ sensor:
   - platform: template
     id: wind_speed_max_window
     name: "${friendly_name} Wind Speed Max"
+    unit_of_measurement: "m/s"
+    icon: "mdi:weather-windy"
+    accuracy_decimals: 2
+
+  - platform: template
+    id: wind_speed_min_window
+    name: "${friendly_name} Wind Speed Min"
     unit_of_measurement: "m/s"
     icon: "mdi:weather-windy"
     accuracy_decimals: 2
