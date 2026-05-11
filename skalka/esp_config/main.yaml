@@ -12,7 +12,7 @@ substitutions:
   measurement_duration: 60s
   deep_sleep_failsafe_run_duration: 100s
   deep_sleep_duration: 520s
-  fw_version: 0.2.8
+  fw_version: 0.2.9
   windguru_url: "https://www.windguru.cz/upload/api.php"
   windguru_uid: !secret windguru_uid
   windguru_password: !secret windguru_password
