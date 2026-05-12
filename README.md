@@ -1,5 +1,7 @@
 # DIY weather station based on LaskaKit ESP32
 
+![DIY weather station](docs/4.jpeg)
+
 This repository contains the ESPHome configuration and firmware publishing flow for weather stations in this project.
 
 Hardware base board: [LaskaKit Meteo Mini](https://www.laskakit.cz/laskakit-meteo-mini/?variantId=10473)
@@ -46,6 +48,7 @@ The production device behavior is:
    - humidity
    - average wind speed
    - maximum wind speed
+   - minimum wind speed
    - wind direction
 6. Enable Wi-Fi only after measurement is complete.
 7. Send the payload to `windguru.cz`.
@@ -144,6 +147,7 @@ http://0.0.0.0:8080/upload/api.php
 
 What it does:
 - accepts Windguru-like GET requests
+- accepts wind fields including `wind_avg`, `wind_max`, `wind_min`, and `wind_direction`
 - returns `200 OK`
 - logs each request to `windguru_log.jsonl`
 - prints a short summary to the terminal
@@ -153,6 +157,7 @@ This is useful while validating the measurement and upload flow before switching
 ## Current implementation notes
 
 - Wind speed is measured continuously from the anemometer pulse input.
+- Wind speed exports include per-window average, maximum, and minimum values.
 - Wind direction is derived from the vane resistance through an ADC -> resistance -> heading mapping.
 - Temperature and humidity are read from the SHT4x sensor.
 - A local/fake Windguru sender currently exists for testing.
