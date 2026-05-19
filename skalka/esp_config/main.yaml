@@ -12,7 +12,7 @@ substitutions:
   measurement_duration: 60s
   deep_sleep_failsafe_run_duration: 100s
   deep_sleep_duration: 520s
-  fw_version: 0.2.9
+  fw_version: 0.2.10
   windguru_url: "https://www.windguru.cz/upload/api.php"
   windguru_uid: !secret windguru_uid
   windguru_password: !secret windguru_password
@@ -352,7 +352,8 @@ sensor:
     name: "${friendly_name} Wind Speed"
     unit_of_measurement: "m/s"
     icon: "mdi:weather-windy"
-    internal_filter: 5ms
+    # Debounce anemometer contact bounce so short false pulses do not inflate max wind speed.
+    internal_filter: 10ms
     timeout: 5s
     accuracy_decimals: 2
     filters:
